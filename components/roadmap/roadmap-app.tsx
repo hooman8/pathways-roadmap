@@ -166,7 +166,7 @@ export default function RoadmapApp() {
         <footer className="workspace-footer"><span><GitBranch size={15} />Expand a workstream to see its substeps. Select a task to inspect its dependencies.</span><Button variant="ghost" size="sm" aria-label="Reset project progress" disabled={!canEdit} onClick={() => setResetOpen(true)}><RotateCcw size={13} />Reset progress</Button></footer>
       </main>
     </SidebarInset>
-    <Sheet open={sheetOpen} onOpenChange={setSheetOpen}><SheetContent className="task-sheet w-full sm:max-w-[470px]">
+    <Sheet open={sheetOpen} onOpenChange={open => { setSheetOpen(open); if (!open) setDraft(null); }}><SheetContent className="task-sheet w-full sm:max-w-[470px]">
       <SheetHeader><div className="eyebrow">{draft ? tasks.some(t => t.id === draft.id) ? "EDIT TASK" : "NEW STEP" : group ? "WORKSTREAM DETAILS" : "TASK DETAILS"}</div><SheetTitle>{draft ? draft.title || "Add a step" : task?.title}</SheetTitle><SheetDescription>{draft ? "Define the work and what needs to happen first." : task?.owner || "Unassigned"}</SheetDescription></SheetHeader>
       {draft ? <form className="task-editor" onSubmit={e => { e.preventDefault(); saveTask(); }}>
         <div className="editor-fields"><Label htmlFor="task-title">Task name</Label><Input id="task-title" required maxLength={120} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="e.g. Configure image signing" />
