@@ -1,4 +1,8 @@
 {
+  "hosting": {
+    "rewrites": [{ "source": "**", "run": { "serviceId": "pathways", "region": "us-east1" } }],
+    "headers": [{ "source": "**", "headers": [{ "key": "Cache-Control", "value": "private, no-store" }] }]
+  },
   "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
   "emulators": {
     "auth": { "port": 9099 },

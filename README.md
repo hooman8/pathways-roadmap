@@ -10,6 +10,7 @@ start in parallel and which prerequisites are still blocking it.
 - Next.js 16, React 19, and TypeScript
 - React Flow with ELK layout, Tailwind CSS, and shadcn/ui
 - Google Cloud Run for the application and API
+- Firebase Hosting for the public address and same-origin authentication helpers
 - Cloud Firestore for shared project data and access settings
 - Firebase Authentication with Google sign-in and HTTP-only server sessions
 
@@ -17,6 +18,9 @@ The initial browser prototype was upgraded to a Google Cloud application.
 **This version uses Firestore, not SQLite or Cloudflare D1.** The public repository
 contains source and synthetic examples; it contains no production data, account
 credentials, or service account keys.
+
+See [the deployed environment](docs/cloud-environment.md) for the current app
+address and Google Cloud resources.
 
 ## Working with your team
 
@@ -151,10 +155,23 @@ gcloud run deploy pathways \
 
 Cloud Run accepts unauthenticated requests so the Google sign-in page can load.
 **Project data and every write API remain authenticated and membership-gated.**
-Set `APP_BASE_URL` to the resulting HTTPS origin, update the Cloud Run environment,
-and add its hostname to Firebase Authentication's authorized domains. If adding a
-custom domain, update both settings to match it. `APP_BASE_URL` is also used for
-strict same-origin checks on session and workspace writes.
+Use `https://YOUR_PROJECT_ID.firebaseapp.com` for `APP_BASE_URL` and
+`YOUR_PROJECT_ID.firebaseapp.com` for `FIREBASE_AUTH_DOMAIN`. This keeps the app
+and Google's authentication helper on the same origin. The included
+`firebase.json` routes requests to the `pathways` Cloud Run service in `us-east1`;
+change those values when deploying elsewhere, then publish the routing:
+
+```sh
+firebase deploy --only hosting --project YOUR_PROJECT_ID
+```
+
+Use the `firebaseapp.com` address as the canonical URL. If adding a custom
+domain, update both environment settings, Firebase authorized domains, and the
+Google provider's authorized redirect URI as described in
+[Firebase's authentication domain guide](https://firebase.google.com/docs/auth/web/redirect-best-practices).
+`APP_BASE_URL` enforces strict same-origin checks on session and workspace writes.
+Dynamic responses are private and not cached; the `__session` cookie is forwarded
+through Firebase Hosting to Cloud Run.
 
 The health endpoint is `/api/health`. Do not deploy emulator variables in
 production; the application rejects that configuration.
