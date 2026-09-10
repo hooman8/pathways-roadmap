@@ -3,6 +3,7 @@ import { z } from "zod";
 export const taskSchema = z.object({
   id: z.string().min(1).max(100), title: z.string().trim().min(1).max(120),
   parentId: z.string().nullable(), owner: z.string().max(100),
+  assigneeIds: z.array(z.string().min(1).max(100)).max(50).optional(),
   description: z.string().max(5000), criteria: z.array(z.string().max(500)).max(30),
   dependsOn: z.array(z.string()).max(120), status: z.enum(["todo", "in-progress", "done"]),
 });

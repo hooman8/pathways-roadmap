@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { layoutRoadmap, type LayoutResult } from "@/lib/roadmap-layout";
 import { childrenOf, leafTasks, progress, relatedTasks, statusLabels, taskStatus, type Task, type Status } from "@/lib/roadmap";
 import "@xyflow/react/dist/style.css";
+import { assignedEngineers, type Engineer } from "@/lib/projects";
 
 type CardData = {
-  task: Task; status: Status; group: boolean; expanded: boolean; done: number; total: number;
+  task: Task; assigneeLabel: string; fullAssigneeLabel: string; status: Status; group: boolean; expanded: boolean; done: number; total: number;
   focused: boolean; faded: boolean; blocked: number; onExpand: (id: string) => void; onOpen: (id: string) => void;
 };
 type TaskNode = Node<CardData, "task">;
@@ -26,7 +27,7 @@ function TaskCard({ data }: NodeProps<TaskNode>) {
     <div className="task-card-content">
       <div className="task-eyebrow"><span>{data.group ? "WORKSTREAM" : "TASK"}</span><StatusMark status={data.status} /></div>
       <button className="task-title nodrag" onClick={() => data.onOpen(data.task.id)}>{data.task.title}</button>
-      <div className="task-owner">{data.task.owner || "Unassigned"}</div>
+      <div className="task-owner" aria-label={data.fullAssigneeLabel}>{data.assigneeLabel}</div>
       {!data.expanded && !data.group && <span className={`task-state ${data.status}`}>{statusLabels[data.status]}</span>}
       {data.group && !data.expanded && <div className="group-progress"><span>{data.done}/{data.total} complete{data.blocked > 0 && <span className="blocked-count"> · {data.blocked} blocked</span>}</span><Progress value={data.done / data.total * 100} aria-label={`${data.task.title}: ${data.done} of ${data.total} complete`} /></div>}
     </div>
@@ -38,8 +39,8 @@ function TaskCard({ data }: NodeProps<TaskNode>) {
 }
 const nodeTypes = { task: TaskCard };
 
-function Canvas({ tasks, expanded, selected, readyOnly, onExpand, onOpen, clearSelection }: {
-  tasks: Task[]; expanded: Set<string>; selected: string | null; readyOnly: boolean;
+function Canvas({ tasks, engineers, expanded, selected, readyOnly, onExpand, onOpen, clearSelection }: {
+  tasks: Task[]; engineers: Engineer[]; expanded: Set<string>; selected: string | null; readyOnly: boolean;
   onExpand: (id: string) => void; onOpen: (id: string) => void; clearSelection: () => void;
 }) {
   const [layout, setLayout] = useState<LayoutResult>({ nodes: [], edges: [] });
@@ -71,10 +72,12 @@ function Canvas({ tasks, expanded, selected, readyOnly, onExpand, onOpen, clearS
       const group = childrenOf(n.id, tasks).length > 0;
       const p = progress(n.id, tasks);
       const status = taskStatus(n.id, tasks);
+      const assigned = assignedEngineers(task, engineers);
+      const assigneeLabel = assigned.length ? `${assigned[0].name}${assigned.length > 1 ? ` +${assigned.length - 1}` : ""}` : task.owner || "Unassigned";
       return {
         id: n.id, type: "task", parentId: n.parentId, position: { x: n.x, y: n.y },
         style: { width: n.width, height: n.height }, draggable: false,
-        data: { task, status, group, expanded: expanded.has(n.id) && group, ...p,
+        data: { task, assigneeLabel, fullAssigneeLabel: assigned.length ? `Assigned engineers: ${assigned.map(e => e.name).join(", ")}` : `Responsible team: ${task.owner || "Unassigned"}`, status, group, expanded: expanded.has(n.id) && group, ...p,
           focused: selected === n.id, faded: (relations !== null && !active(n.id)) || (readyOnly && !leafTasks(n.id, tasks).some(t => taskStatus(t.id, tasks) === "ready")),
           blocked: leafTasks(n.id, tasks).filter(t => taskStatus(t.id, tasks) === "blocked").length,
           onExpand, onOpen,
@@ -86,7 +89,7 @@ function Canvas({ tasks, expanded, selected, readyOnly, onExpand, onOpen, clearS
       return { ...e, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed, color: relevantEdge ? "#3472d3" : "#c6ceda", width: 15, height: 15 }, style: { stroke: relevantEdge ? "#3472d3" : "#c6ceda", strokeWidth: 2, opacity: relevantEdge ? 1 : 0.28 }, zIndex: 2 };
     });
     return { nodes, edges };
-  }, [tasks, layout, expanded, selected, readyOnly, relations, onExpand, onOpen]);
+  }, [tasks, engineers, layout, expanded, selected, readyOnly, relations, onExpand, onOpen]);
   return <div className="map-canvas" aria-label="Interactive onboarding dependency map">
     <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} nodesConnectable={false} nodesDraggable={false} elementsSelectable={false}
       minZoom={0.2} maxZoom={1.5} fitView onNodeClick={(_, node) => onOpen(node.id)} onPaneClick={clearSelection}

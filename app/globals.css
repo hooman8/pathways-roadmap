@@ -156,3 +156,65 @@ button { cursor: pointer; } button:disabled { cursor: not-allowed; }
 .task-owner { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .task-eyebrow { font-size: 11px; }
 .task-state { line-height: 14px; }
+
+/* Project selection and engineer assignments */
+.project-picker { padding: 0 23px 22px; margin-bottom: 12px; border-bottom: 1px solid #e3e6ec; }
+.project-picker-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.project-picker-label label { font-size: 11px; letter-spacing: 1.2px; color: #7b8493; }
+.project-picker-label button { height: 28px; padding: 0 6px; font-size: 12px; gap: 3px; color: #69798c; }
+.project-picker [data-slot=select-trigger] { min-width: 0; background: #fff; font-size: 13px; height: 39px; }
+.project-picker [data-slot=select-value] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.project-settings-link { width: 100%; justify-content: flex-start; white-space: normal; padding: 8px 0 0; height: auto; gap: 7px; font-size: 12px; color: #7c8797; text-align: left; }
+.project-title-row { display: flex; align-items: center; gap: 8px; }
+.project-title-row h1 { overflow-wrap: anywhere; }
+.project-title-row button { flex-shrink: 0; color: #8d98a7; padding: 0 8px; }
+.page-heading > div:first-child { min-width: 0; }
+.page-heading p { overflow-wrap: anywhere; }
+.breadcrumbs { min-width: 0; }.breadcrumbs strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50vw; }
+.project-team-summary { padding: 0; height: auto; font-size: 12px; color: #697c90; gap: 7px; }
+.project-team-summary:hover { background: transparent; color: #344b67; }
+.checklist-owner { font-size: 12px; overflow-wrap: anywhere; }
+.checklist-owner small { display: block; color: #99a2ad; font-size: 11px; margin-top: 3px; }
+.task-engineers { padding: 17px 0 6px; }.task-engineers h3 { font-size: 13px; font-weight: 600; color: #637187; }
+.task-engineers .section-heading button { font-size: 12px; height: 27px; color: #587aa1; }
+.assigned-engineer-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.assigned-engineer-list > span { display: inline-flex; align-items: center; gap: 6px; border-radius: 5px; background: #edf2f8; color: #54708f; padding: 6px 9px; font-size: 12px; }
+.task-assignee-picker { display: grid; gap: 4px; padding: 7px 11px; border: 1px solid #e0e5ec; border-radius: 6px; max-height: 210px; overflow: auto; }
+.editor-fields .task-assignee-picker label { display: flex; align-items: center; gap: 9px; margin: 0; padding: 6px 0; font-size: 13px; cursor: pointer; }
+.task-assignee-picker small { display: block; font-size: 11px; color: #97a0ad; margin-top: 3px; }
+.task-assignee-empty { padding: 12px; border-radius: 6px; background: #f6f8fb; }
+.task-assignee-empty p { font-size: 12px; color: #8a95a5; line-height: 19px; margin-bottom: 10px; }
+.project-dialog { padding: 0; gap: 0; max-height: min(90dvh, 850px); overflow: hidden; }
+.project-dialog [data-slot=dialog-header] { padding: 25px 27px 20px; border-bottom: 1px solid #e4e8ee; }
+.project-dialog [data-slot=dialog-title] { font-size: 23px; line-height: 29px; letter-spacing: -.5px; }
+.project-dialog [data-slot=dialog-description] { font-size: 13px; line-height: 21px; color: #8290a1; }
+.project-form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.project-fields { padding: 22px 27px; overflow-y: auto; display: grid; gap: 20px; }
+.project-fields > div > label, .engineer-inputs label { margin-bottom: 8px; font-size: 13px; color: #63758a; }
+.project-fields input { font-size: 14px; }.project-fields > div > .field-hint { margin-top: 8px; }
+.project-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 12px; }
+.project-section-heading h3 { display: flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 600; color: #546b85; }
+.project-section-heading > span { color: #93a0b0; font-size: 12px; }
+.engineer-picker { border: 1px solid #e0e6ee; border-radius: 7px; padding: 3px 12px; max-height: 205px; overflow-y: auto; }
+.engineer-picker > label { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #eef1f5; cursor: pointer; }.engineer-picker > label:last-child { border-bottom: 0; }
+.engineer-initials { display: grid; place-items: center; width: 30px; height: 30px; background: #eaf0f7; color: #607a99; border-radius: 50%; font-size: 11px; flex-shrink: 0; }
+.engineer-identity { display: flex; flex-direction: column; gap: 3px; min-width: 0; }.engineer-identity strong { font-size: 13px; font-weight: 500; color: #596d85; overflow-wrap: anywhere; }.engineer-identity small { color: #93a0ae; font-size: 11px; overflow-wrap: anywhere; }
+.engineer-empty { color: #8b99aa; line-height: 21px; font-size: 13px; padding: 13px 0; }
+.new-engineer { padding-top: 17px; }.new-engineer h4 { font-size: 13px; color: #657991; margin-bottom: 11px; }
+.engineer-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.engineer-inputs > div { min-width: 0; }.new-engineer > button { margin-top: 12px; }
+.project-dialog [data-slot=dialog-footer] { padding: 18px 27px; border-top: 1px solid #e3e8ef; flex-shrink: 0; }
+.project-dialog .form-error { flex-shrink: 0; margin: 0; padding: 12px 27px; }
+.team-change-note { color: #a27d32; background: #fff8e9; padding: 10px 12px; font-size: 12px; line-height: 19px; margin-top: 10px; border-radius: 5px; }
+@media (max-width: 767px) {
+  .project-picker { padding-left: 16px; padding-right: 16px; }
+  .project-title-row { gap: 2px; }.project-title-row h1 { font-size: 25px; }
+  .project-title-row button { padding: 0 4px; }
+  .project-dialog { width: calc(100% - 24px); max-height: 92dvh; }
+  .project-dialog [data-slot=dialog-header], .project-fields { padding: 20px; }
+  .project-dialog [data-slot=dialog-footer] { padding: 15px 20px; }
+  .project-dialog [data-slot=dialog-title] { font-size: 21px; }
+  .engineer-inputs { grid-template-columns: 1fr; }
+}
+
+.project-dialog { display: flex; flex-direction: column; }
+.project-dialog [data-slot=dialog-header] { flex-shrink: 0; }

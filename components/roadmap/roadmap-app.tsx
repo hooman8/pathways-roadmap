@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronRight, Download, GitBranch, Layers3, ListChecks, Map as MapIcon, Pencil, Plus, RotateCcw, Upload, Workflow, X } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronRight, Download, GitBranch, Layers3, ListChecks, Map as MapIcon, Pencil, Plus, RotateCcw, Upload, Users, Workflow, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,20 +12,33 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Sidebar, SidebarProvider, SidebarHeader, SidebarContent, SidebarFooter, SidebarInset, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarTrigger, SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
 import RoadmapCanvas, { StatusMark } from "./roadmap-canvas";
 import { blockedBy, childrenOf, isGroup, leafTasks, progress, prerequisites, reconcile, relatedTasks, statusLabels, taskStatus, validateRoadmap, type Roadmap, type Task } from "@/lib/roadmap";
 import { sampleRoadmap } from "@/lib/sample-roadmap";
+import ProjectDialog from "./project-dialog";
+import { WORKSPACE_KEY, readWorkspace, migrateRoadmap, updateProject, assignedEngineers, exportProject, parseProjectImport, mergeProjectImport, type Workspace, type ImportedProjects } from "@/lib/projects";
 
-const STORAGE_KEY = "pathways-roadmap-v1";
-function downloadRoadmap(roadmap: Roadmap) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(roadmap, null, 2)], { type: "application/json" }));
-  const a = document.createElement("a"); a.href = url; a.download = "onboarding-roadmap.json"; a.click(); URL.revokeObjectURL(url);
+function downloadJson(data: unknown, filename: string) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a"); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
 }
 export default function RoadmapApp() {
-  const [roadmap, setRoadmap] = useState<Roadmap>(sampleRoadmap);
+  const [workspace, setWorkspace] = useState<Workspace>(() => migrateRoadmap(sampleRoadmap));
+  const project = workspace.projects.find(p => p.id === workspace.activeProjectId)!;
+  const roadmap = project.roadmap;
+  const projectEngineers = workspace.engineers.filter(e => project.engineerIds.includes(e.id));
+  const [projectDialog, setProjectDialog] = useState<"create" | "edit" | null>(null);
+  const [storageBlocked, setStorageBlocked] = useState(false);
+  function setRoadmap(next: Roadmap) { setWorkspace(current => updateProject(current, project.id, next)); }
+  function exportCurrent() { downloadJson(exportProject(project, workspace.engineers), `${roadmap.application.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-roadmap.json`); }
+  function switchProject(id: string) {
+    setWorkspace(current => ({ ...current, activeProjectId: id }));
+    setSelected(null); setSheetOpen(false); setDraft(null); setExpanded(new Set()); setReadyOnly(false);
+  }
   const [hydrated, setHydrated] = useState(false);
   const [saved, setSaved] = useState(false);
   const [storageWarning, setStorageWarning] = useState(false);
@@ -36,21 +49,21 @@ export default function RoadmapApp() {
   const [error, setError] = useState("");
   const [view, setView] = useState("map");
   const [readyOnly, setReadyOnly] = useState(false);
-  const [imported, setImported] = useState<Roadmap | null>(null);
+  const [imported, setImported] = useState<ImportedProjects | null>(null);
   const [reopen, setReopen] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
   const tasks = roadmap.tasks;
   useEffect(() => {
-    try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) setRoadmap(validateRoadmap(JSON.parse(raw))); }
-    catch { setStorageWarning(true); toast.error("Saved data could not be loaded. The example is open; export it before closing if storage is unavailable."); }
+    try { setWorkspace(readWorkspace(localStorage, sampleRoadmap)); }
+    catch { setStorageBlocked(true); setStorageWarning(true); toast.error("Saved data could not be loaded. The original data was kept; export any new edits before closing."); }
     setHydrated(true);
   }, []);
   useEffect(() => {
-    if (!hydrated) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(roadmap)); setSaved(true); }
+    if (!hydrated || storageBlocked) return;
+    try { localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace)); setSaved(true); }
     catch { setSaved(false); setStorageWarning(true); }
-  }, [roadmap, hydrated]);
+  }, [workspace, hydrated, storageBlocked]);
   const p = progress(null, tasks);
   const leaves = tasks.filter(t => !isGroup(t.id, tasks));
   const ready = leaves.filter(t => taskStatus(t.id, tasks) === "ready");
@@ -70,7 +83,7 @@ export default function RoadmapApp() {
     toast.success(nextStatus === "done" ? "Task complete. Dependencies updated." : nextStatus === "in-progress" ? "Task started." : `Task reopened.${reset ? ` ${reset} downstream task${reset === 1 ? "" : "s"} reset.` : ""}`);
   }
   function addTask(parentId: string | null = null) {
-    setDraft({ id: crypto.randomUUID(), title: "", owner: tasks.find(t => t.id === parentId)?.owner ?? "", parentId, description: "", criteria: [], dependsOn: [], status: "todo" });
+    setDraft({ id: crypto.randomUUID(), title: "", owner: tasks.find(t => t.id === parentId)?.owner ?? "", parentId, description: "", criteria: [], dependsOn: [], assigneeIds: [], status: "todo" });
     setSelected(null); setError(""); setSheetOpen(true);
   }
   function saveTask() {
@@ -84,8 +97,8 @@ export default function RoadmapApp() {
   }
   async function readImport(file?: File) {
     if (!file) return;
-    if (file.size > 1_000_000) { toast.error("Choose a roadmap file smaller than 1 MB."); return; }
-    try { setImported(validateRoadmap(JSON.parse(await file.text()))); }
+    if (file.size > 5_000_000) { toast.error("Choose a project or workspace export smaller than 5 MB."); return; }
+    try { setImported(parseProjectImport(JSON.parse(await file.text()))); }
     catch (e) { toast.error(e instanceof SyntaxError ? "This file is not valid JSON. Choose a roadmap export." : e instanceof Error ? e.message : "Could not read this roadmap."); }
   }
   function showMap(id: string, includeChildren = false) {
@@ -101,7 +114,7 @@ export default function RoadmapApp() {
       const allowed = !readyOnly || s === "ready" || leafTasks(t.id, tasks).some(l => taskStatus(l.id, tasks) === "ready");
       return <div key={t.id}>
         {allowed && <button className={`checklist-row ${isParent ? "checklist-group" : ""}`} style={{ "--depth": Math.min(depth, 5) } as CSSProperties} onClick={() => onOpen(t.id)}>
-          <StatusMark status={s} /><span className="checklist-title">{t.title}{isParent && <small>{progress(t.id, tasks).done}/{progress(t.id, tasks).total} substeps</small>}</span><span className="checklist-owner">{t.owner || "Unassigned"}</span><span className={`state-badge ${s}`}>{statusLabels[s]}</span><ChevronRight size={16} />
+          <StatusMark status={s} /><span className="checklist-title">{t.title}{isParent && <small>{progress(t.id, tasks).done}/{progress(t.id, tasks).total} substeps</small>}</span><span className="checklist-owner">{assignedEngineers(t, workspace.engineers).map(e => e.name).join(", ") || "Unassigned"}{t.owner && <small>{t.owner}</small>}</span><span className={`state-badge ${s}`}>{statusLabels[s]}</span><ChevronRight size={16} />
         </button>}{isParent && renderRows(t.id, depth + 1)}
       </div>;
     });
@@ -111,6 +124,7 @@ export default function RoadmapApp() {
       <SidebarHeader className="brand"><span className="brand-symbol"><Workflow size={23} strokeWidth={2.1} /></span><span>pathways<span className="brand-dot">.</span></span></SidebarHeader>
       <SidebarContent>
         <div className="workspace-label"><span className="workspace-avatar">PE</span><div><strong>Platform engineering</strong><span>Onboarding workspace</span></div></div>
+        <div className="project-picker"><div className="project-picker-label"><Label htmlFor="active-project">PROJECT</Label><Button variant="ghost" size="sm" aria-label="Create a new project" onClick={() => setProjectDialog("create")}><Plus size={15} />New</Button></div><Select value={project.id} onValueChange={switchProject}><SelectTrigger id="active-project" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{workspace.projects.map(p => <SelectItem key={p.id} value={p.id}>{p.roadmap.application}</SelectItem>)}</SelectContent></Select><Button className="project-settings-link" variant="ghost" onClick={() => setProjectDialog("edit")}><Users size={14} />Project settings & engineers</Button></div>
         <SidebarGroup><SidebarGroupLabel>ROADMAP OUTLINE</SidebarGroupLabel><SidebarMenu>
           {tasks.filter(t => !t.parentId).map((t, i) => <SidebarMenuItem key={t.id}><SidebarMenuButton isActive={selected === t.id} onClick={() => onOpen(t.id)} className="outline-item"><span className="outline-number">{String(i + 1).padStart(2, "0")}</span><span>{t.title}</span><StatusMark status={taskStatus(t.id, tasks)} /></SidebarMenuButton></SidebarMenuItem>)}
         </SidebarMenu></SidebarGroup>
@@ -121,25 +135,26 @@ export default function RoadmapApp() {
       <SidebarFooter className="sidebar-footer"><div className="sidebar-progress-title"><span>Overall progress</span><strong>{Math.round(p.done / p.total * 100)}%</strong></div><Progress value={p.done / p.total * 100} aria-label="Overall onboarding progress" /><p>{p.done} of {p.total} tasks complete</p><div className="local-note"><span className={`save-dot ${saved ? "saved" : ""}`} />{saved ? "Saved in this browser" : "Browser storage unavailable"}</div></SidebarFooter>
     </Sidebar>
     <SidebarInset className="app-main">
-      <header className="topbar"><div className="breadcrumbs"><SidebarTrigger /><span>Roadmaps</span><ChevronRight size={14} /><strong>Application onboarding</strong></div><span className="prototype-badge">PROTOTYPE</span></header>
+      <header className="topbar"><div className="breadcrumbs"><SidebarTrigger /><span>Projects</span><ChevronRight size={14} /><strong>{roadmap.application}</strong></div><span className="prototype-badge">PROTOTYPE</span></header>
       <main className="roadmap-workspace">
-        <div className="page-heading"><div><div className="eyebrow">APPLICATION ROADMAP</div><h1>{roadmap.title}</h1><p>Every step, every dependency. One clear path to onboard.</p></div><div className="file-actions"><Button variant="outline" aria-label="Import roadmap" onClick={() => importInput.current?.click()}><Upload />Import</Button><Button variant="outline" aria-label="Export roadmap" onClick={() => { downloadRoadmap(roadmap); toast.success("Roadmap exported with current progress."); }}><Download />Export</Button></div></div>
+        <div className="page-heading"><div><div className="eyebrow">PROJECT ROADMAP</div><div className="project-title-row"><h1>{roadmap.application}</h1><Button variant="ghost" size="sm" aria-label="Edit project name and engineers" onClick={() => setProjectDialog("edit")}><Pencil size={15} /></Button></div><p>{roadmap.title}</p></div><div className="file-actions"><Button variant="outline" aria-label="Import roadmap" onClick={() => importInput.current?.click()}><Upload />Import</Button><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" aria-label="Export project or workspace"><Download />Export</Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={exportCurrent}>Export this project</DropdownMenuItem><DropdownMenuItem onSelect={() => downloadJson(workspace, "pathways-workspace.json")}>Export all projects</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div></div>
         <input type="file" accept=".json,application/json" className="sr-only" ref={importInput} aria-label="Import roadmap JSON" onChange={e => { void readImport(e.target.files?.[0]); e.target.value = ""; }} />
-        <div className="roadmap-meta"><span className="application-tag"><span className="application-icon">{roadmap.application.slice(0, 1).toUpperCase()}</span>{roadmap.application}</span><span className="meta-divider" /><span>{p.total} tasks</span><span className="meta-divider" /><span>{new Set(tasks.map(t => t.owner).filter(Boolean)).size} teams</span><span className="meta-progress"><span className="mini-track"><span style={{ width: `${p.done / p.total * 100}%` }} /></span>{p.done}/{p.total} complete</span></div>
-        {storageWarning && <div className="storage-warning" role="alert">Browser storage could not be read or written. Export your roadmap to keep a copy.<button onClick={() => setStorageWarning(false)} aria-label="Dismiss storage notice"><X size={16} /></button></div>}
+        <div className="roadmap-meta"><span className="application-tag"><span className="application-icon">{roadmap.application.slice(0, 1).toUpperCase()}</span>{roadmap.application}</span><span className="meta-divider" /><span>{p.total} tasks</span><span className="meta-divider" /><Button variant="ghost" size="sm" className="project-team-summary" onClick={() => setProjectDialog("edit")}><Users size={14} />{projectEngineers.length} engineer{projectEngineers.length === 1 ? "" : "s"}</Button><span className="meta-progress"><span className="mini-track"><span style={{ width: `${p.done / p.total * 100}%` }} /></span>{p.done}/{p.total} complete</span></div>
+        {storageWarning && <div className="storage-warning" role="alert">Browser storage could not be read or written. Export all projects to keep a copy.<button onClick={() => setStorageWarning(false)} aria-label="Dismiss storage notice"><X size={16} /></button></div>}
         <Tabs value={view} onValueChange={setView} className="roadmap-tabs">
           <div className="map-toolbar"><TabsList variant="line"><TabsTrigger value="map"><MapIcon size={17} />Roadmap</TabsTrigger><TabsTrigger value="list"><ListChecks size={17} />Checklist</TabsTrigger></TabsList><div className="map-actions"><Button variant={readyOnly ? "secondary" : "ghost"} className={readyOnly ? "ready-active" : ""} onClick={() => setReadyOnly(v => !v)} aria-pressed={readyOnly}><span className="ready-bullet" />Ready now<span className="tiny-count">{ready.length}</span></Button><Button variant="ghost" onClick={() => setExpanded(new Set())} disabled={!expanded.size || view !== "map"}><Layers3 size={16} />Collapse all</Button><Button className="add-step" aria-label="Add step" onClick={() => addTask()}><Plus size={16} />Add step</Button></div></div>
-          <TabsContent value="map" className="map-panel"><RoadmapCanvas tasks={tasks} expanded={expanded} selected={selected} readyOnly={readyOnly} onExpand={onExpand} onOpen={onOpen} clearSelection={() => setSelected(null)} /></TabsContent>
-          <TabsContent value="list" className="checklist-panel"><div className="checklist-heading"><span>TASK / SUBSTEP</span><span>OWNER</span><span>STATUS</span></div>{renderRows()}{readyOnly && !ready.length && <p className="list-empty">No tasks are ready to start. Review the blocked tasks to see their prerequisites.</p>}</TabsContent>
+          <TabsContent value="map" className="map-panel"><RoadmapCanvas key={project.id} engineers={workspace.engineers} tasks={tasks} expanded={expanded} selected={selected} readyOnly={readyOnly} onExpand={onExpand} onOpen={onOpen} clearSelection={() => setSelected(null)} /></TabsContent>
+          <TabsContent value="list" className="checklist-panel"><div className="checklist-heading"><span>TASK / SUBSTEP</span><span>ENGINEERS / TEAM</span><span>STATUS</span></div>{renderRows()}{readyOnly && !ready.length && <p className="list-empty">No tasks are ready to start. Review the blocked tasks to see their prerequisites.</p>}</TabsContent>
         </Tabs>
-        <footer className="workspace-footer"><span><GitBranch size={15} />Expand a workstream to see its substeps. Select a task to inspect its dependencies.</span><Button variant="ghost" size="sm" aria-label="Reset example" onClick={() => setResetOpen(true)}><RotateCcw size={13} />Reset example</Button></footer>
+        <footer className="workspace-footer"><span><GitBranch size={15} />Expand a workstream to see its substeps. Select a task to inspect its dependencies.</span><Button variant="ghost" size="sm" aria-label="Reset project progress" onClick={() => setResetOpen(true)}><RotateCcw size={13} />Reset progress</Button></footer>
       </main>
     </SidebarInset>
     <Sheet open={sheetOpen} onOpenChange={setSheetOpen}><SheetContent className="task-sheet w-full sm:max-w-[470px]">
       <SheetHeader><div className="eyebrow">{draft ? tasks.some(t => t.id === draft.id) ? "EDIT TASK" : "NEW STEP" : group ? "WORKSTREAM DETAILS" : "TASK DETAILS"}</div><SheetTitle>{draft ? draft.title || "Add a step" : task?.title}</SheetTitle><SheetDescription>{draft ? "Define the work and what needs to happen first." : task?.owner || "Unassigned"}</SheetDescription></SheetHeader>
       {draft ? <form className="task-editor" onSubmit={e => { e.preventDefault(); saveTask(); }}>
         <div className="editor-fields"><Label htmlFor="task-title">Task name</Label><Input id="task-title" required maxLength={120} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="e.g. Configure image signing" />
-          <Label htmlFor="task-owner">Owner / team</Label><Input id="task-owner" maxLength={100} value={draft.owner} onChange={e => setDraft({ ...draft, owner: e.target.value })} placeholder="e.g. Platform team" />
+          <Label htmlFor="task-owner">Responsible team</Label><Input id="task-owner" maxLength={100} value={draft.owner} onChange={e => setDraft({ ...draft, owner: e.target.value })} placeholder="e.g. Platform team" />
+          <Label>Assigned engineers</Label>{projectEngineers.length ? <div className="task-assignee-picker">{projectEngineers.map(engineer => <label key={engineer.id}><Checkbox checked={(draft.assigneeIds ?? []).includes(engineer.id)} onCheckedChange={checked => setDraft({ ...draft, assigneeIds: checked ? [...(draft.assigneeIds ?? []), engineer.id] : (draft.assigneeIds ?? []).filter(id => id !== engineer.id) })} /><span>{engineer.name}{engineer.team && <small>{engineer.team}</small>}</span></label>)}</div> : <div className="task-assignee-empty"><p>No engineers have been added to this project.</p><Button type="button" variant="outline" size="sm" onClick={() => setProjectDialog("edit")}><Users size={14} />Add project engineers</Button></div>}
           <Label htmlFor="task-parent">Part of</Label><Select value={draft.parentId ?? "__root"} onValueChange={value => setDraft({ ...draft, parentId: value === "__root" ? null : value })}><SelectTrigger id="task-parent" className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__root">Main roadmap</SelectItem>{tasks.filter(t => t.id !== draft.id).map(t => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}</SelectContent></Select>
           <Label htmlFor="task-description">Instructions</Label><Textarea id="task-description" rows={4} maxLength={5000} value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} placeholder="What needs to be done?" />
           <Label htmlFor="task-criteria">Completion criteria <span className="field-hint">one per line</span></Label><Textarea id="task-criteria" rows={3} value={draft.criteria.join("\n")} onChange={e => setDraft({ ...draft, criteria: e.target.value.split("\n") })} placeholder="A clear condition for completion" />
@@ -147,6 +162,7 @@ export default function RoadmapApp() {
         </div>{error && <p className="form-error" role="alert">{error}</p>}<div className="sheet-action-row"><Button type="button" variant="outline" onClick={() => { setDraft(null); if (!task) setSheetOpen(false); }}>Cancel</Button><Button type="submit">Save step<Check size={15} /></Button></div>
       </form> : task && <>
         <div className="task-details"><div className="detail-status-line"><span className={`state-badge ${status}`}><StatusMark status={status} />{statusLabels[status]}</span><Button variant="ghost" size="sm" onClick={() => { setDraft({ ...task }); setError(""); }}><Pencil size={14} />Edit</Button></div>
+          <section className="task-engineers"><div className="section-heading"><h3>Assigned engineers</h3><Button variant="ghost" size="sm" onClick={() => { setDraft({ ...task }); setError(""); }}>{(task.assigneeIds ?? []).length ? "Change" : "Assign"}</Button></div>{assignedEngineers(task, workspace.engineers).length ? <div className="assigned-engineer-list">{assignedEngineers(task, workspace.engineers).map(engineer => <span key={engineer.id}><Users size={13} />{engineer.name}</span>)}</div> : <p className="field-hint">No engineer assigned yet.</p>}</section>
           {task.description && <p className="task-description">{task.description}</p>}
           {group && <section className="detail-section"><div className="section-heading"><h3>Substeps</h3><span>{progress(task.id, tasks).done}/{progress(task.id, tasks).total} complete</span></div><Progress value={progress(task.id, tasks).done / progress(task.id, tasks).total * 100} aria-label="Workstream completion" /><div className="detail-task-list">{childrenOf(task.id, tasks).map(t => <button key={t.id} onClick={() => onOpen(t.id)}><StatusMark status={taskStatus(t.id, tasks)} /><span>{t.title}<small>{statusLabels[taskStatus(t.id, tasks)]}</small></span><ChevronRight size={15} /></button>)}</div><Button variant="outline" size="sm" onClick={() => addTask(task.id)}><Plus size={14} />Add substep</Button></section>}
           {!!blockers.length && <section className="detail-section blocker-section"><h3>Waiting on {blockers.length} prerequisite{blockers.length > 1 ? "s" : ""}</h3><div className="detail-task-list">{blockers.map(t => <button key={t.id} onClick={() => onOpen(t.id)}><StatusMark status={taskStatus(t.id, tasks)} /><span>{t.title}<small>{t.owner}</small></span><ArrowUpRight size={15} /></button>)}</div></section>}
@@ -156,9 +172,10 @@ export default function RoadmapApp() {
         </div><div className="sheet-bottom"><Button variant="outline" onClick={() => showMap(task.id)}><GitBranch size={16} />Show on map</Button>{group ? <Button onClick={() => { showMap(task.id, true); }}>Explore substeps<ArrowRight size={15} /></Button> : status === "done" ? <Button variant="outline" onClick={() => setReopen(task.id)}><RotateCcw size={15} />Reopen</Button> : <div className="status-actions">{status === "ready" && <Button variant="outline" onClick={() => updateStatus(task.id, "in-progress")}>Start task</Button>}<Button disabled={status === "blocked"} onClick={() => updateStatus(task.id, "done")}><Check size={15} />Mark complete</Button></div>}</div>
       </>}
     </SheetContent></Sheet>
-    <Dialog open={!!imported} onOpenChange={open => { if (!open) setImported(null); }}><DialogContent><DialogHeader><DialogTitle>Import this roadmap?</DialogTitle><DialogDescription>This replaces the roadmap saved in this browser. Export your current roadmap first if you want to keep it.</DialogDescription></DialogHeader><div className="import-summary"><strong>{imported?.title}</strong><span>{imported?.application} · {imported?.tasks.length} steps and groups</span></div><DialogFooter><Button variant="outline" onClick={() => downloadRoadmap(roadmap)}>Export current</Button><Button onClick={() => { if (!imported) return; setRoadmap(imported); setExpanded(new Set()); setSelected(null); setImported(null); toast.success("Roadmap imported."); }}>Import roadmap</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={!!imported} onOpenChange={open => { if (!open) setImported(null); }}><DialogContent><DialogHeader><DialogTitle>Import {imported?.projects.length === 1 ? "this project" : "these projects"}?</DialogTitle><DialogDescription>Imported projects will be added alongside your existing projects, with their progress, engineers, and task assignments.</DialogDescription></DialogHeader><div className="import-summary"><strong>{imported?.projects.map(p => p.roadmap.application).join(", ")}</strong><span>{imported?.projects.length} project(s) · {imported?.engineers.length} engineer(s)</span></div><DialogFooter><Button variant="outline" onClick={() => setImported(null)}>Cancel</Button><Button onClick={() => { if (!imported) return; try { const next = mergeProjectImport(workspace, imported); setWorkspace(next); setExpanded(new Set()); setSelected(null); setSheetOpen(false); setImported(null); toast.success("Projects imported."); } catch (e) { toast.error(e instanceof Error ? e.message : "Could not import projects."); } }}>Import projects</Button></DialogFooter></DialogContent></Dialog>
     <AlertDialog open={!!reopen} onOpenChange={open => { if (!open) setReopen(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reopen this task?</AlertDialogTitle><AlertDialogDescription>Dependent tasks that are complete or in progress will reset and become blocked until their prerequisites are complete again.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { if (reopen) updateStatus(reopen, "todo"); setReopen(null); }}>Reopen task</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-    <AlertDialog open={resetOpen} onOpenChange={setResetOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Restore the example roadmap?</AlertDialogTitle><AlertDialogDescription>Your edits and progress in this browser will be replaced. Export your roadmap first to keep a copy.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><Button variant="outline" onClick={() => downloadRoadmap(roadmap)}>Export current</Button><AlertDialogAction onClick={() => { setRoadmap(sampleRoadmap); setExpanded(new Set()); setSelected(null); setResetOpen(false); }}>Reset example</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={resetOpen} onOpenChange={setResetOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reset progress for {roadmap.application}?</AlertDialogTitle><AlertDialogDescription>All tasks in this project will return to pending. The steps, dependencies, project engineers, and task assignments will be kept. Other projects are unaffected.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><Button variant="outline" onClick={exportCurrent}>Export project</Button><AlertDialogAction onClick={() => { setRoadmap({ ...roadmap, tasks: tasks.map(t => ({ ...t, status: "todo" })) }); setResetOpen(false); toast.success("Project progress reset."); }}>Reset progress</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    {projectDialog && <ProjectDialog mode={projectDialog} workspace={workspace} onClose={() => setProjectDialog(null)} onSave={next => { const changedProject = next.activeProjectId !== project.id; setWorkspace(next); if (changedProject) { setExpanded(new Set()); setSelected(null); setSheetOpen(false); setDraft(null); setReadyOnly(false); } else { setDraft(current => current ? { ...current, assigneeIds: (current.assigneeIds ?? []).filter(id => next.projects.find(p => p.id === project.id)!.engineerIds.includes(id)) } : null); } toast.success(projectDialog === "create" ? "Project created with fresh progress." : "Project and engineers updated."); }} />}
     <Toaster position="bottom-right" richColors closeButton />
   </SidebarProvider>;
 }
