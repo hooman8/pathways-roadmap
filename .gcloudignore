@@ -1,0 +1,8 @@
+.gcloudignore
+#!include:.gitignore
+.git
+node_modules
+.next
+dist
+.env*
+.deployment*

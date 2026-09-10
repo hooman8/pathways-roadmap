@@ -1,0 +1,10 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "workspaces", "fieldPath": "members", "indexes": [] },
+    { "collectionGroup": "workspaces", "fieldPath": "engineers", "indexes": [] },
+    { "collectionGroup": "workspaces", "fieldPath": "projectIds", "indexes": [] },
+    { "collectionGroup": "projects", "fieldPath": "roadmap", "indexes": [] },
+    { "collectionGroup": "projects", "fieldPath": "engineerIds", "indexes": [] }
+  ]
+}
