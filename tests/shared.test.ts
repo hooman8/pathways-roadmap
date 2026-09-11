@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { migrateRoadmap, createProject } from "../lib/projects";
 import { sampleRoadmap } from "../lib/sample-roadmap";
 import { mergeWorkspaces, content } from "../lib/shared";
+import { changeTaskStatus, resolveImpediments } from "../lib/roadmap";
 
 test("simultaneous edits to separate tasks and projects are preserved", () => {
   const base = migrateRoadmap(sampleRoadmap);
@@ -45,4 +46,19 @@ test("active project choice stays local to each engineer", () => {
   assert.deepEqual(content(base), content(mine));
   const result = mergeWorkspaces(base, mine, base);
   assert.equal(result.workspace.activeProjectId, mine.activeProjectId);
+});
+
+test("impediments merge with independent skipped work and concurrent resolution is reviewed", () => {
+  const base = migrateRoadmap(sampleRoadmap);
+  const mine = structuredClone(base), shared = structuredClone(base);
+  mine.projects[0].roadmap.tasks = changeTaskStatus("identity", "blocked", mine.projects[0].roadmap.tasks, "Approval pending");
+  shared.projects[0].roadmap.tasks = changeTaskStatus("retention", "skipped", shared.projects[0].roadmap.tasks);
+  const merged = mergeWorkspaces(base, mine, shared);
+  assert.deepEqual(merged.conflicts, []);
+  assert.equal(merged.workspace.projects[0].roadmap.tasks.find(t => t.id === "identity")!.blockedReason, "Approval pending");
+  assert.equal(merged.workspace.projects[0].roadmap.tasks.find(t => t.id === "retention")!.status, "skipped");
+  const resolved = structuredClone(merged.workspace), updated = structuredClone(merged.workspace);
+  resolved.projects[0].roadmap.tasks = resolveImpediments("identity", resolved.projects[0].roadmap.tasks);
+  updated.projects[0].roadmap.tasks = changeTaskStatus("identity", "blocked", updated.projects[0].roadmap.tasks, "A different approval is pending");
+  assert.ok(mergeWorkspaces(merged.workspace, resolved, updated).conflicts.length > 0);
 });

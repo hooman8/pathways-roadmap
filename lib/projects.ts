@@ -62,6 +62,7 @@ export function readWorkspace(storage: Pick<Storage, "getItem">, fallback: Roadm
 
 function copyRoadmap(source: Roadmap, reset: boolean): Roadmap {
   const copy = structuredClone(source);
+  if (reset) copy.tasks.forEach(task => { delete task.blockedReason; });
   const ids = new Map(copy.tasks.map(task => [task.id, crypto.randomUUID()]));
   return {
     ...copy, tasks: copy.tasks.map(task => ({ ...task, id: ids.get(task.id)!,

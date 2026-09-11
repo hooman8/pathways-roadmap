@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleRoadmap } from "../lib/sample-roadmap";
-import { progress } from "../lib/roadmap";
+import { progress, changeTaskStatus } from "../lib/roadmap";
 import { migrateRoadmap, createProject, updateProject, setProjectTeam, validateWorkspace, exportProject, parseProjectImport, mergeProjectImport, readWorkspace, WORKSPACE_KEY, LEGACY_KEY } from "../lib/projects";
 
 function workspaceWithTeam() {
@@ -103,4 +103,17 @@ test("workspace backups roundtrip all projects and corrupt new data does not fal
   assert.deepEqual(incoming.projects, workspace.projects);
   assert.deepEqual(incoming.engineers, workspace.engineers);
   assert.throws(() => readWorkspace({ getItem: key => key === WORKSPACE_KEY ? "{broken" : JSON.stringify(sampleRoadmap) }, sampleRoadmap));
+});
+
+test("exports retain impediments and not-needed work; new projects start without either", () => {
+  const workspace = workspaceWithTeam();
+  const roadmap = workspace.projects[0].roadmap;
+  roadmap.tasks = changeTaskStatus("identity", "blocked", roadmap.tasks, "Waiting on the platform team");
+  roadmap.tasks = changeTaskStatus("retention", "skipped", roadmap.tasks);
+  const incoming = parseProjectImport(JSON.parse(JSON.stringify(exportProject(workspace.projects[0], workspace.engineers))));
+  const imported = mergeProjectImport(workspace, incoming).projects[1].roadmap;
+  assert.equal(imported.tasks.find(t => t.status === "blocked")!.blockedReason, "Waiting on the platform team");
+  assert.equal(progress(null, imported.tasks).skipped, 1);
+  const freshProject = createProject(roadmap, "Fresh application", "Registry onboarding");
+  assert.ok(freshProject.roadmap.tasks.every(t => t.status === "todo" && t.blockedReason === undefined));
 });

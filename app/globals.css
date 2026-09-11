@@ -256,3 +256,32 @@ button { cursor: pointer; } button:disabled { cursor: not-allowed; }
 .access-dialog [data-slot=dialog-footer] { border-top: 1px solid #e4e8ee; padding-top: 18px; }
 
 .workspace-gate .login-note { margin-top: 28px; font-size: 14px; color: #718096; }
+
+/* Impediments stay required; skipped work has its own neutral treatment. */
+.status-mark.blocked { color: #a43b34; background: #fbe8e5; }
+.status-mark.skipped { color: #5f6875; background: #e9edf1; }
+.state-badge.blocked { color: #963a32; background: #fbece9; }
+.state-badge.skipped { color: #58616e; background: #edf0f3; }
+.task-card.blocked { background: #fff7f5; border-color: #ce8d84; }
+.task-card.skipped { background: #f5f6f8; border-color: #a9b1bc; border-style: dashed; }
+.task-state.blocked, .group-progress .blocked-count, .blocker-section h3 { color: #a43b34; }
+.task-state.skipped { color: #58616e; }
+.task-card.expanded-group.blocked { background: #fff7f577 !important; border-color: #ce8d84 !important; }
+.task-card.expanded-group.skipped { background: #f5f6f899 !important; border-color: #a9b1bc !important; border-style: dashed !important; }
+.task-status-controls { margin-top: 14px; }
+.task-status-controls button { font-size: 14px; }
+.impediment-section { margin: 18px 0; padding: 16px; border: 1px solid #e7b8b1; border-radius: 7px; background: #fff7f5; }
+.impediment-section h3 { color: #963a32; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.impediment-section p { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: #71413c; }
+.impediment-section > div + div { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f0d6d1; }
+.impediment-section .field-hint { margin-top: 14px; color: #77534e; }
+.impediment-task-link { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; color: #963a32; margin-bottom: 5px; text-align: left; }
+.impediment-task-link:hover { text-decoration: underline; }
+.impediment-form { display: grid; gap: 10px; }
+.impediment-form textarea { font-size: 16px; }
+.impediment-summary { max-height: 260px; overflow-y: auto; display: grid; gap: 12px; font-size: 14px; }
+.impediment-summary p { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; color: #71413c; }
+.checklist-title small.impediment-preview { color: #963a32; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.not-needed-note { font-size: 14px; line-height: 1.5; padding: 14px; margin-top: 16px; border-radius: 6px; background: #f3f5f7; color: #58616e; }
+.map-legend { flex-wrap: wrap; max-width: calc(100% - 84px); }
+@media (max-width: 767px) { .map-legend { max-width: calc(100% - 28px); gap: 7px 12px; }.react-flow__controls { bottom: 65px; } }

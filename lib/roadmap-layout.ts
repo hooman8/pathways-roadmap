@@ -17,7 +17,7 @@ export async function layoutRoadmap(tasks: Task[], expanded: Set<string>): Promi
         layoutOptions: { "elk.padding": "[top=112,left=24,bottom=24,right=24]", "elk.direction": "DOWN", "elk.spacing.nodeNode": "24", "elk.layered.spacing.nodeNodeBetweenLayers": "40" },
         children: build(t.id),
       };
-      return { id: t.id, width: kids.length ? 270 : 270, height: kids.length ? 184 : 132 };
+      return { id: t.id, width: 270, height: kids.length ? 208 : 132 };
     });
   }
   const children = build(null);

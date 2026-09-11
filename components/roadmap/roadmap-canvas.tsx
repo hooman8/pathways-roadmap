@@ -2,20 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, Handle, MarkerType, Position, useReactFlow, type Node, type NodeProps, type Edge } from "@xyflow/react";
-import { ArrowDownRight, Check, ChevronDown, ChevronUp, Circle, Clock3, Layers3, LockKeyhole } from "lucide-react";
+import { ArrowDownRight, Check, ChevronDown, ChevronUp, Circle, Clock3, Layers3, LockKeyhole, SkipForward } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { layoutRoadmap, type LayoutResult } from "@/lib/roadmap-layout";
-import { childrenOf, leafTasks, progress, relatedTasks, statusLabels, taskStatus, type Task, type Status } from "@/lib/roadmap";
+import { childrenOf, leafTasks, progress, progressPercent, progressText, relatedTasks, statusLabels, taskStatus, type Task, type Status } from "@/lib/roadmap";
 import "@xyflow/react/dist/style.css";
 import { assignedEngineers, type Engineer } from "@/lib/projects";
 
 type CardData = {
-  task: Task; assigneeLabel: string; fullAssigneeLabel: string; status: Status; group: boolean; expanded: boolean; done: number; total: number;
+  task: Task; assigneeLabel: string; fullAssigneeLabel: string; status: Status; group: boolean; expanded: boolean; done: number; total: number; skipped: number;
   focused: boolean; faded: boolean; blocked: number; onExpand: (id: string) => void; onOpen: (id: string) => void;
 };
 type TaskNode = Node<CardData, "task">;
-const icons = { done: Check, "in-progress": Clock3, blocked: LockKeyhole, ready: Circle };
+const icons = { done: Check, "in-progress": Clock3, blocked: LockKeyhole, ready: Circle, skipped: SkipForward };
 
 export function StatusMark({ status }: { status: Status }) {
   const Icon = icons[status];
@@ -28,11 +28,11 @@ function TaskCard({ data }: NodeProps<TaskNode>) {
       <div className="task-eyebrow"><span>{data.group ? "WORKSTREAM" : "TASK"}</span><StatusMark status={data.status} /></div>
       <button className="task-title nodrag" onClick={() => data.onOpen(data.task.id)}>{data.task.title}</button>
       <div className="task-owner" aria-label={data.fullAssigneeLabel}>{data.assigneeLabel}</div>
-      {!data.expanded && !data.group && <span className={`task-state ${data.status}`}>{statusLabels[data.status]}</span>}
-      {data.group && !data.expanded && <div className="group-progress"><span>{data.done}/{data.total} complete{data.blocked > 0 && <span className="blocked-count"> · {data.blocked} blocked</span>}</span><Progress value={data.done / data.total * 100} aria-label={`${data.task.title}: ${data.done} of ${data.total} complete`} /></div>}
+      {!data.expanded && !data.group && <span className={`task-state ${data.status}`} title={data.task.blockedReason}>{data.task.status === "blocked" ? "Blocked · impediment" : statusLabels[data.status]}</span>}
+      {data.group && !data.expanded && <div className="group-progress"><span>{progressText(data)}</span>{data.blocked > 0 && <span className="blocked-count">{data.blocked} blocked</span>}<Progress value={progressPercent(data)} aria-label={`${data.task.title}: ${progressText(data)}`} /></div>}
     </div>
     {data.group && <button className={`expand-button nodrag ${data.expanded ? "expanded-toggle" : ""}`} onClick={event => { event.stopPropagation(); data.onExpand(data.task.id); }} aria-expanded={data.expanded}>
-      <Layers3 size={14} /><span>{data.expanded ? "Collapse substeps" : `Explore ${data.total} substeps`}</span>{data.expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+      <Layers3 size={14} /><span>{data.expanded ? "Collapse substeps" : `Explore ${data.total + data.skipped} substeps`}</span>{data.expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
     </button>}
     <Handle type="source" position={Position.Bottom} isConnectable={false} />
   </div>;
@@ -101,7 +101,7 @@ function Canvas({ tasks, engineers, expanded, selected, readyOnly, onExpand, onO
     {selected && <Button variant="outline" size="sm" className="clear-focus" onClick={clearSelection}>Clear dependency focus</Button>}
     {layingOut && !layout.nodes.length && <div className="canvas-message" role="status">Arranging your roadmap…</div>}
     {error && <div className="canvas-message" role="alert"><p>The map could not be arranged. Your tasks are still available in the checklist.</p><Button variant="outline" onClick={() => setRetry(v => v + 1)}>Try again</Button></div>}
-    <div className="map-legend" aria-label="Task statuses"><span><StatusMark status="done" />Complete</span><span><StatusMark status="in-progress" />In progress</span><span><StatusMark status="ready" />Ready</span><span><StatusMark status="blocked" />Blocked</span></div>
+    <div className="map-legend" aria-label="Task statuses"><span><StatusMark status="done" />Complete</span><span><StatusMark status="in-progress" />In progress</span><span><StatusMark status="ready" />Ready</span><span><StatusMark status="blocked" />Blocked</span><span><StatusMark status="skipped" />Not needed</span></div>
   </div>;
 }
 export default function RoadmapCanvas(props: Parameters<typeof Canvas>[0]) {

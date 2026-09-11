@@ -33,6 +33,31 @@ address and Google Cloud resources.
 5. Expand workstreams or use the checklist. Completed prerequisites unlock
    dependent work. Reopening a prerequisite resets affected downstream progress.
 
+### Not-needed work and impediments
+
+Open a task and use **Change status**:
+
+- **Mark as not needed** uses a gray skip icon. The task stays visible, is excluded
+  from completion totals, and counts as resolved for dependencies. **Make required
+  again** returns it to pending and recalculates dependent progress.
+- **Add impediment** records the obstacle preventing required work from moving
+  forward. A reason is required. The task uses a red lock indicator, remains in
+  completion totals, and holds up dependent work. **Edit impediment** changes the
+  reason; **Resolve impediment** returns the task to pending. Remaining
+  prerequisites still apply.
+- Dependency blocks are automatic and show **Waiting on prerequisites**. They
+  clear when those prerequisites are complete or marked not needed. An impediment
+  must be explicitly resolved, even after all prerequisites are satisfied.
+
+Workstream status is calculated from its substeps. Marking a workstream not needed
+applies to all its leaf tasks. Adding an impediment to a workstream applies only
+to unfinished required substeps without an existing impediment; completed tasks,
+not-needed tasks, and existing impediment reasons are preserved. Resolving a
+workstream's impediments clears those impediments without changing its skipped or
+completed substeps. An entirely skipped workstream shows **Not needed**, not a
+completed percentage. Project copies and **Reset progress** start with all tasks
+required and clear impediments. Exports preserve both states and their reasons.
+
 An engineer record is an assignment label, separate from a sign-in account.
 Adding an engineer to a project does not grant application access. Access is
 always checked by the server. Owners manage membership; viewers cannot edit.

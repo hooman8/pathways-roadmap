@@ -5,7 +5,8 @@ export const taskSchema = z.object({
   parentId: z.string().nullable(), owner: z.string().max(100),
   assigneeIds: z.array(z.string().min(1).max(100)).max(50).optional(),
   description: z.string().max(5000), criteria: z.array(z.string().max(500)).max(30),
-  dependsOn: z.array(z.string()).max(120), status: z.enum(["todo", "in-progress", "done"]),
+  dependsOn: z.array(z.string()).max(120), status: z.enum(["todo", "in-progress", "done", "skipped", "blocked"]),
+  blockedReason: z.string().trim().max(1000).optional(),
 });
 export const roadmapSchema = z.object({
   version: z.literal(1), title: z.string().trim().min(1).max(120),
@@ -13,8 +14,9 @@ export const roadmapSchema = z.object({
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Roadmap = z.infer<typeof roadmapSchema>;
-export type Status = "ready" | "in-progress" | "blocked" | "done";
-export const statusLabels: Record<Status, string> = { ready: "Ready to start", "in-progress": "In progress", blocked: "Blocked", done: "Complete" };
+export type Status = "ready" | "in-progress" | "blocked" | "done" | "skipped";
+export const statusLabels: Record<Status, string> = { ready: "Ready to start", "in-progress": "In progress", blocked: "Blocked", done: "Complete", skipped: "Not needed" };
+export const isResolved = (task: Task) => task.status === "done" || task.status === "skipped";
 export const childrenOf = (id: string, tasks: Task[]) => tasks.filter(t => t.parentId === id);
 export const isGroup = (id: string, tasks: Task[]) => tasks.some(t => t.parentId === id);
 export function leafTasks(id: string, tasks: Task[]): Task[] {
@@ -35,26 +37,65 @@ export function prerequisites(id: string, tasks: Task[]): string[] {
 }
 export function blockedBy(id: string, tasks: Task[]): Task[] {
   const ids = new Set(prerequisites(id, tasks));
-  return tasks.filter(t => ids.has(t.id) && t.status !== "done");
+  return tasks.filter(t => ids.has(t.id) && !isResolved(t));
 }
 export function taskStatus(id: string, tasks: Task[]): Status {
-  const leaves = leafTasks(id, tasks);
-  if (!leaves.length) return "blocked";
+  const all = leafTasks(id, tasks);
+  if (!all.length) return "blocked";
+  const leaves = all.filter(t => t.status !== "skipped");
+  if (!leaves.length) return "skipped";
   if (leaves.every(t => t.status === "done")) return "done";
   if (leaves.some(t => t.status === "in-progress" && !blockedBy(t.id, tasks).length)) return "in-progress";
-  if (leaves.some(t => t.status !== "done" && !blockedBy(t.id, tasks).length)) return "ready";
+  if (leaves.some(t => t.status !== "done" && t.status !== "blocked" && !blockedBy(t.id, tasks).length)) return "ready";
   return "blocked";
 }
 export function progress(id: string | null, tasks: Task[]) {
   const leaves = id ? leafTasks(id, tasks) : tasks.filter(t => !isGroup(t.id, tasks));
-  return { done: leaves.filter(t => t.status === "done").length, total: leaves.length };
+  return { done: leaves.filter(t => t.status === "done").length, total: leaves.filter(t => t.status !== "skipped").length, skipped: leaves.filter(t => t.status === "skipped").length };
 }
+export function progressPercent(value: ReturnType<typeof progress>) {
+  return value.total ? value.done / value.total * 100 : 0;
+}
+// Workstream actions apply to leaf tasks so groups, dependency checks, and
+// progress always agree. Completed / skipped work survives a bulk block.
+export function changeTaskStatus(id: string, status: Task["status"], tasks: Task[], reason?: string): Task[] {
+  if (!tasks.some(t => t.id === id)) throw new Error("This task no longer exists.");
+  const group = isGroup(id, tasks);
+  if (group && (status === "done" || status === "in-progress")) throw new Error("Update the individual substeps to change this workstream’s progress.");
+  const leaves = leafTasks(id, tasks);
+  const targets = leaves.filter(t => status === "blocked" ? !isResolved(t) && (!group || t.status !== "blocked") : status === "todo" && group ? t.status === "skipped" : true);
+  if (status === "blocked" && (!reason?.trim() || reason.trim().length > 1000)) throw new Error("Describe the impediment (up to 1,000 characters).");
+  if (status === "done" || status === "in-progress") {
+    if (targets.some(t => t.status === "blocked")) throw new Error("Resolve the impediment first.");
+    if (targets.some(t => blockedBy(t.id, tasks).length)) throw new Error("Resolve the prerequisites first.");
+  }
+  const ids = new Set(targets.map(t => t.id));
+  return reconcile(tasks.map(t => {
+    if (!ids.has(t.id)) return t;
+    const next = { ...t, status };
+    if (status === "blocked") next.blockedReason = reason!.trim();
+    else delete next.blockedReason;
+    return next;
+  }));
+}
+export function resolveImpediments(id: string, tasks: Task[]): Task[] {
+  const ids = new Set(leafTasks(id, tasks).filter(t => t.status === "blocked").map(t => t.id));
+  return reconcile(tasks.map(t => {
+    if (!ids.has(t.id)) return t;
+    const next = { ...t, status: "todo" as const };
+    delete next.blockedReason;
+    return next;
+  }));
+}
+export const progressText = (value: ReturnType<typeof progress>) => value.total
+  ? `${value.done}/${value.total} complete${value.skipped ? ` · ${value.skipped} not needed` : ""}`
+  : `${value.skipped} not needed`;
 export function reconcile(tasks: Task[]): Task[] {
   let next = tasks.map(t => ({ ...t }));
   for (let i = 0; i < tasks.length; i++) {
     let changed = false;
     next = next.map(t => {
-      if (!isGroup(t.id, next) && t.status !== "todo" && blockedBy(t.id, next).length) {
+      if (!isGroup(t.id, next) && (t.status === "done" || t.status === "in-progress") && blockedBy(t.id, next).length) {
         changed = true; return { ...t, status: "todo" };
       }
       return t;
@@ -70,6 +111,9 @@ export function validateRoadmap(input: unknown): Roadmap {
   const ids = new Set(data.tasks.map(t => t.id));
   if (ids.size !== data.tasks.length) throw new Error("Each task needs a unique ID.");
   for (const task of data.tasks) {
+    if (task.status === "blocked" && !task.blockedReason) throw new Error(`Add a reason for blocking “${task.title}”.`);
+    if (isGroup(task.id, data.tasks) && (task.status === "blocked" || task.status === "skipped")) throw new Error("Workstream status is calculated from its substeps. Apply the status to its substeps instead.");
+    if (task.status !== "blocked") delete task.blockedReason;
     if (task.parentId && !ids.has(task.parentId)) throw new Error(`The parent of “${task.title}” does not exist.`);
     if (task.dependsOn.some(id => !ids.has(id))) throw new Error(`A dependency of “${task.title}” does not exist.`);
     let parent: Task | undefined = task;
