@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { migrateRoadmap, createProject } from "../lib/projects";
 import { sampleRoadmap } from "../lib/sample-roadmap";
 import { mergeWorkspaces, content } from "../lib/shared";
-import { changeTaskStatus, resolveImpediments } from "../lib/roadmap";
+import { changeTaskStatus, resolveImpediments, deleteStep } from "../lib/roadmap";
 
 test("simultaneous edits to separate tasks and projects are preserved", () => {
   const base = migrateRoadmap(sampleRoadmap);
@@ -74,4 +74,23 @@ test("team membership changes merge with independent task edits; concurrent rost
   assert.deepEqual(merged.workspace.teams[0].engineerIds, ["alex"]);
   shared.teams[0].engineerIds = ["sam"];
   assert.ok(mergeWorkspaces(base, mine, shared).conflicts.length > 0);
+});
+
+test("deletion merges with independent edits but conflicts with edits to removed work or new dependency links", () => {
+  const base = migrateRoadmap(sampleRoadmap);
+  const mine = structuredClone(base), shared = structuredClone(base);
+  mine.projects[0].roadmap = deleteStep("network", mine.projects[0].roadmap);
+  shared.projects[0].roadmap.tasks.find(t => t.id === "retention")!.description = "Independent change";
+  const merged = mergeWorkspaces(base, mine, shared);
+  assert.deepEqual(merged.conflicts, []);
+  assert.ok(!merged.workspace.projects[0].roadmap.tasks.some(t => t.id === "network"));
+  assert.equal(merged.workspace.projects[0].roadmap.tasks.find(t => t.id === "retention")!.description, "Independent change");
+  shared.projects[0].roadmap.tasks.find(t => t.id === "runtime-access")!.description = "New work on the removed substep";
+  assert.ok(mergeWorkspaces(base, mine, shared).conflicts.length > 0);
+  const linked = structuredClone(base);
+  linked.projects[0].roadmap.tasks.find(t => t.id === "retention")!.dependsOn.push("runtime-access");
+  assert.ok(mergeWorkspaces(base, mine, linked).conflicts.length > 0);
+  const newChild = structuredClone(base);
+  newChild.projects[0].roadmap.tasks.push({ ...newChild.projects[0].roadmap.tasks.find(t => t.id === "runtime-access")!, id: "new-child" });
+  assert.ok(mergeWorkspaces(base, mine, newChild).conflicts.length > 0);
 });

@@ -320,3 +320,20 @@ button { cursor: pointer; } button:disabled { cursor: not-allowed; }
   .team-member-editor, .teams-dialog [data-slot=dialog-header] { padding: 20px; }
   .teams-dialog [data-slot=dialog-footer] { padding: 16px 20px; }
 }
+
+.task-status-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.delete-step-button { color: #a43b34; margin-left: auto; }
+.delete-step-button:hover { color: #842d27; background: #fbece9; }
+.delete-step-dialog { max-height: 90dvh; overflow-y: auto; }
+.delete-step-dialog [data-slot=alert-dialog-description] { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.delete-step-impact { display: grid; gap: 16px; font-size: 14px; line-height: 1.6; min-width: 0; }
+.delete-step-impact:empty { display: none; }
+.delete-step-impact h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.delete-step-impact p { color: #637187; overflow-wrap: anywhere; }
+.delete-step-impact ul { margin-top: 8px; border: 1px solid #e0e6ee; border-radius: 6px; padding: 4px 12px; }
+.delete-step-impact li { padding: 8px 0; overflow-wrap: anywhere; }
+.delete-step-impact li + li { border-top: 1px solid #e9edf2; }
+.delete-step-impact li span { display: block; color: #637187; margin-top: 3px; }
+.empty-roadmap { min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px; gap: 14px; }
+.empty-roadmap > svg { color: #738399; }.empty-roadmap h2 { font-size: 22px; font-weight: 600; }
+.empty-roadmap p { font-size: 16px; color: #637187; line-height: 1.5; }

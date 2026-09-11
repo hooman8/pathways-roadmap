@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleRoadmap } from "../lib/sample-roadmap";
-import { progress, changeTaskStatus } from "../lib/roadmap";
+import { progress, changeTaskStatus, deleteStep } from "../lib/roadmap";
 import { migrateRoadmap, createProject, updateProject, setProjectTeam, validateWorkspace, exportProject, parseProjectImport, mergeProjectImport, readWorkspace, WORKSPACE_KEY, LEGACY_KEY, updateTeam, selectTaskTeam, eligibleEngineers, saveProjectTask } from "../lib/projects";
 
 function workspaceWithTeam() {
@@ -185,4 +185,21 @@ test("project exports exclude unrelated engineers and import never changes an ex
   const importedTask = collision.projects[1].roadmap.tasks[0];
   assert.notEqual(importedTask.teamId, team.id);
   assert.ok(importedTask.owner.includes("imported"));
+});
+
+test("step deletion preserves team directories, project engineers, other projects, and empty project exports", () => {
+  const workspace = workspaceWithTeam();
+  const other = createProject(workspace.projects[0].roadmap, "Other project", "Onboarding");
+  workspace.projects.push(other);
+  let roadmap = workspace.projects[0].roadmap;
+  while (roadmap.tasks.length) roadmap = deleteStep(roadmap.tasks[0].id, roadmap);
+  const after = updateProject(workspace, workspace.projects[0].id, roadmap);
+  assert.deepEqual(after.projects[0].roadmap.tasks, []);
+  assert.deepEqual(after.projects[0].engineerIds, workspace.projects[0].engineerIds);
+  assert.deepEqual(after.teams, workspace.teams);
+  assert.deepEqual(after.engineers, workspace.engineers);
+  assert.deepEqual(after.projects[1], other);
+  assert.deepEqual(parseProjectImport(exportProject(after.projects[0], after.engineers, after.teams)).projects[0], after.projects[0]);
+  const added = saveProjectTask(after, after.projects[0].id, { ...workspace.projects[0].roadmap.tasks[0], id: "new-step", status: "todo" });
+  assert.equal(added.projects[0].roadmap.tasks.length, 1);
 });

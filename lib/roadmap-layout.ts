@@ -6,6 +6,7 @@ export type LayoutResult = { nodes: PositionedTask[]; edges: { id: string; sourc
 let elk: InstanceType<typeof ELK> | undefined;
 
 export async function layoutRoadmap(tasks: Task[], expanded: Set<string>): Promise<LayoutResult> {
+  if (!tasks.length) return { nodes: [], edges: [] };
   elk ??= new ELK();
   const visible = new Set<string>();
   function build(parentId: string | null): ElkNode[] {

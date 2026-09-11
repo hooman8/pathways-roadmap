@@ -53,6 +53,21 @@ Project-scoped members see only engineers in their permitted projects. Only owne
 can change the shared team directory; importing teams with new names or memberships
 also requires an owner. Engineer records do not grant sign-in access.
 
+### Deleting steps
+
+Open a step and choose **Delete step** next to **Change status**. Review the
+confirmation, then delete. Deleting a workstream also removes all its nested
+substeps. The confirmation lists them and the remaining steps whose prerequisite
+links will be removed. Those steps may become ready; other prerequisites and
+impediments still apply. Deletion is permanent and does not have an undo action.
+
+If a workstream loses its last substep, it becomes a regular step and retains its
+displayed progress. A block caused only by a deleted substep's impediment is
+removed. Deleting the final step leaves an empty project where you can add new
+steps. Project engineers, teams, and other projects remain. Editors can delete
+steps in their permitted projects; viewers cannot. Conflicting shared edits are
+reviewed before any stale deletion can replace newer work.
+
 ### Not-needed work and impediments
 
 Open a task and use **Change status**:

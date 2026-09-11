@@ -11,7 +11,7 @@ export const taskSchema = z.object({
 });
 export const roadmapSchema = z.object({
   version: z.literal(1), title: z.string().trim().min(1).max(120),
-  application: z.string().trim().min(1).max(100), tasks: z.array(taskSchema).min(1).max(120),
+  application: z.string().trim().min(1).max(100), tasks: z.array(taskSchema).max(120),
 });
 export type Task = z.infer<typeof taskSchema>;
 export type Roadmap = z.infer<typeof roadmapSchema>;
@@ -88,9 +88,42 @@ export function resolveImpediments(id: string, tasks: Task[]): Task[] {
     return next;
   }));
 }
+
+export function planStepDeletion(id: string, tasks: Task[]) {
+  if (!tasks.some(t => t.id === id)) throw new Error("This step no longer exists.");
+  const removedIds = new Set<string>();
+  function include(taskId: string) {
+    if (removedIds.has(taskId)) return;
+    removedIds.add(taskId);
+    childrenOf(taskId, tasks).forEach(child => include(child.id));
+  }
+  include(id);
+  const removed = tasks.filter(t => removedIds.has(t.id));
+  const remaining = tasks.filter(t => !removedIds.has(t.id));
+  const dependencyChanges = remaining.filter(t => t.dependsOn.some(dep => removedIds.has(dep)))
+    .map(task => ({ task, prerequisites: tasks.filter(t => task.dependsOn.includes(t.id) && removedIds.has(t.id)) }));
+  const emptiedParents = remaining.filter(t => isGroup(t.id, tasks) && !isGroup(t.id, remaining));
+  const nextTasks = reconcile(remaining.map(task => {
+    const next = { ...task, dependsOn: task.dependsOn.filter(dep => !removedIds.has(dep)) };
+    if (emptiedParents.some(t => t.id === task.id)) {
+      // A former workstream is now a regular step. Carry over its displayed
+      // progress rather than reviving its unused, potentially stale stored status.
+      const previous = taskStatus(task.id, tasks);
+      next.status = previous === "ready" || previous === "blocked" ? "todo" : previous;
+      delete next.blockedReason;
+    }
+    return next;
+  }));
+  return { removed, dependencyChanges, emptiedParents, nextTasks };
+}
+
+export function deleteStep(id: string, roadmap: Roadmap): Roadmap {
+  return validateRoadmap({ ...roadmap, tasks: planStepDeletion(id, roadmap.tasks).nextTasks });
+}
+
 export const progressText = (value: ReturnType<typeof progress>) => value.total
   ? `${value.done}/${value.total} complete${value.skipped ? ` · ${value.skipped} not needed` : ""}`
-  : `${value.skipped} not needed`;
+  : value.skipped ? `${value.skipped} not needed` : "No steps yet";
 export function reconcile(tasks: Task[]): Task[] {
   let next = tasks.map(t => ({ ...t }));
   for (let i = 0; i < tasks.length; i++) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronRight, Download, GitBranch, Layers3, ListChecks, Map as MapIcon, Pencil, Plus, RotateCcw, Upload, Users, Workflow, X } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronRight, Download, GitBranch, Layers3, ListChecks, Map as MapIcon, Pencil, Plus, RotateCcw, Trash2, Upload, Users, Workflow, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Sidebar, SidebarProvider, SidebarHeader, SidebarContent, SidebarFooter, SidebarInset, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarTrigger, SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
 import RoadmapCanvas, { StatusMark } from "./roadmap-canvas";
-import { changeTaskStatus, childrenOf, isGroup, isResolved, leafTasks, progress, progressPercent, progressText, prerequisites, relatedTasks, statusLabels, taskStatus, type Roadmap, type Task } from "@/lib/roadmap";
+import { changeTaskStatus, childrenOf, isGroup, isResolved, leafTasks, progress, progressPercent, progressText, prerequisites, relatedTasks, statusLabels, taskStatus, deleteStep, type Roadmap, type Task } from "@/lib/roadmap";
 import { sampleRoadmap } from "@/lib/sample-roadmap";
 import ProjectDialog from "./project-dialog";
 import { WORKSPACE_KEY, readWorkspace, migrateRoadmap, updateProject, assignedEngineers, exportProject, parseProjectImport, mergeProjectImport, LEGACY_KEY, eligibleEngineers, selectTaskTeam, saveProjectTask, type ImportedProjects } from "@/lib/projects";
@@ -26,6 +26,8 @@ import { useSharedWorkspace } from "@/hooks/use-shared-workspace";
 import AccessDialog from "./access-dialog";
 import TaskStatusControls from "./task-status-controls";
 import TeamsDialog from "./teams-dialog";
+import DeleteStepDialog from "./delete-step-dialog";
+import { same } from "@/lib/shared";
 
 function downloadJson(data: unknown, filename: string) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -40,7 +42,8 @@ export default function RoadmapApp() {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [browserProjects, setBrowserProjects] = useState(false);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const sync = useSharedWorkspace(!!projectDialog || !!draft || !!imported || accessOpen || statusDialogOpen || teamsOpen);
+  const [deleteTarget, setDeleteTarget] = useState<{ projectId: string; taskId: string } | null>(null);
+  const sync = useSharedWorkspace(!!projectDialog || !!draft || !!imported || accessOpen || statusDialogOpen || teamsOpen || !!deleteTarget);
   const workspace = sync.workspace ?? migrateRoadmap(sampleRoadmap);
   const setWorkspace = sync.setWorkspace;
   const canEdit = !!sync.snapshot && sync.snapshot.membership.role !== "viewer" && sync.status !== "conflict";
@@ -61,7 +64,7 @@ export default function RoadmapApp() {
   function exportCurrent() { downloadJson(exportProject(project, workspace.engineers, workspace.teams), `${roadmap.application.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-roadmap.json`); }
   function switchProject(id: string) {
     setWorkspace(current => ({ ...current, activeProjectId: id }));
-    setSelected(null); setSheetOpen(false); setDraft(null); setExpanded(new Set()); setReadyOnly(false);
+    setSelected(null); setSheetOpen(false); setDraft(null); setDeleteTarget(null); setExpanded(new Set()); setReadyOnly(false);
   }
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
@@ -73,6 +76,9 @@ export default function RoadmapApp() {
   const [resetOpen, setResetOpen] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
   const tasks = roadmap.tasks;
+  useEffect(() => {
+    if (deleteTarget && (deleteTarget.projectId !== project.id || !tasks.some(t => t.id === deleteTarget.taskId))) setDeleteTarget(null);
+  }, [deleteTarget, project.id, tasks]);
   useEffect(() => {
     try { setBrowserProjects(!localStorage.getItem("pathways-browser-imported") && !!(localStorage.getItem(WORKSPACE_KEY) || localStorage.getItem(LEGACY_KEY))); } catch { /* Import remains available through JSON. */ }
   }, []);
@@ -115,6 +121,16 @@ export default function RoadmapApp() {
       toast.success(exists ? "Task updated. Dependencies recalculated." : "Step added to your roadmap.");
     } catch (e) { setError(e instanceof Error ? e.message : "Check the task details."); }
   }
+  function confirmDelete(reviewedTasks: Task[]) {
+    if (!deleteTarget || !canEdit) throw new Error("You cannot delete this step right now. Resolve any conflicting edits first.");
+    setWorkspace(current => {
+      const targetProject = current.projects.find(p => p.id === deleteTarget.projectId);
+      if (!targetProject || !same(targetProject.roadmap.tasks, reviewedTasks)) throw new Error("The roadmap changed. Close this dialog and review the step again before deleting.");
+      return updateProject(current, targetProject.id, deleteStep(deleteTarget.taskId, targetProject.roadmap));
+    });
+    setDeleteTarget(null); setSelected(null); setSheetOpen(false); setDraft(null); setExpanded(new Set());
+    toast.success("Step deleted. Dependencies and progress updated.");
+  }
   async function readImport(file?: File) {
     if (!file) return;
     if (file.size > 5_000_000) { toast.error("Choose a project or workspace export smaller than 5 MB."); return; }
@@ -139,6 +155,7 @@ export default function RoadmapApp() {
       </div>;
     });
   }
+  const emptyRoadmap = <div className="empty-roadmap"><Layers3 size={30} /><h2>No steps yet</h2><p>{canEdit ? "Add the first step to build this project’s roadmap." : "An editor can add steps to this project."}</p>{canEdit && <Button onClick={() => addTask()}><Plus size={16} />Add step</Button>}</div>;
   if (!sync.workspace) return <main className="workspace-gate"><div className="brand"><Workflow size={25} />pathways.</div><h1>{sync.status === "loading" ? "Opening your workspace…" : sync.error ? "Workspace unavailable" : "No projects assigned"}</h1><p>{sync.error || (sync.status === "loading" ? "Loading shared projects and access settings." : "Ask the workspace owner to give your account access to a project.")}</p><div><Button variant="outline" onClick={() => void sync.retry()}>Try again</Button><a href="/login">Sign in</a><Button variant="ghost" onClick={() => void signOut()}>Switch account</Button></div></main>;
   return <SidebarProvider style={{ "--sidebar-width": "236px" } as CSSProperties}>
     <Sidebar className="app-sidebar">
@@ -150,10 +167,10 @@ export default function RoadmapApp() {
           {tasks.filter(t => !t.parentId).map((t, i) => <SidebarMenuItem key={t.id}><SidebarMenuButton isActive={selected === t.id} onClick={() => onOpen(t.id)} className="outline-item"><span className="outline-number">{String(i + 1).padStart(2, "0")}</span><span>{t.title}</span><StatusMark status={taskStatus(t.id, tasks)} /></SidebarMenuButton></SidebarMenuItem>)}
         </SidebarMenu></SidebarGroup>
         <div className="sidebar-ready"><div className="sidebar-section-title"><span>READY TO START</span><span className="count-label">{ready.length}</span></div>
-          {ready.length ? ready.slice(0, 4).map(t => <button key={t.id} onClick={() => onOpen(t.id)}><span className="ready-bullet" /><span>{t.title}</span><ArrowUpRight size={14} /></button>) : <p>{p.total === 0 ? "All steps are marked not needed." : p.done === p.total ? "All required work is complete." : "Resolve impediments and prerequisites to unlock more work."}</p>}
+          {ready.length ? ready.slice(0, 4).map(t => <button key={t.id} onClick={() => onOpen(t.id)}><span className="ready-bullet" /><span>{t.title}</span><ArrowUpRight size={14} /></button>) : <p>{!tasks.length ? "Add a step to start your roadmap." : p.total === 0 ? "All steps are marked not needed." : p.done === p.total ? "All required work is complete." : "Resolve impediments and prerequisites to unlock more work."}</p>}
         </div>
       </SidebarContent>
-      <SidebarFooter className="sidebar-footer"><div className="sidebar-progress-title"><span>Overall progress</span><strong>{p.total ? `${Math.round(progressPercent(p))}%` : "Not needed"}</strong></div><Progress value={progressPercent(p)} aria-label="Overall onboarding progress" /><p>{progressText(p)}</p><div className="local-note" role="status"><span className={`save-dot ${sync.status === "saved" ? "saved" : ""}`} />{{ loading: "Loading…", saved: "All changes saved", pending: "Changes waiting to save", saving: "Saving…", error: "Connection needs attention", conflict: "Conflicting edits" }[sync.status]}</div><div className="workspace-account"><span title={sync.snapshot?.user.email}>{sync.snapshot?.user.displayName}</span><small>{sync.snapshot?.membership.role} access</small>{isOwner && <Button variant="outline" size="sm" disabled={sync.dirty || sync.status === "saving"} onClick={() => setAccessOpen(true)}><Users size={14} />Workspace access</Button>}<Button variant="ghost" size="sm" disabled={sync.dirty} onClick={() => void signOut()}>Sign out</Button></div></SidebarFooter>
+      <SidebarFooter className="sidebar-footer"><div className="sidebar-progress-title"><span>Overall progress</span><strong>{!tasks.length ? "No steps" : p.total ? `${Math.round(progressPercent(p))}%` : "Not needed"}</strong></div><Progress value={progressPercent(p)} aria-label="Overall onboarding progress" /><p>{progressText(p)}</p><div className="local-note" role="status"><span className={`save-dot ${sync.status === "saved" ? "saved" : ""}`} />{{ loading: "Loading…", saved: "All changes saved", pending: "Changes waiting to save", saving: "Saving…", error: "Connection needs attention", conflict: "Conflicting edits" }[sync.status]}</div><div className="workspace-account"><span title={sync.snapshot?.user.email}>{sync.snapshot?.user.displayName}</span><small>{sync.snapshot?.membership.role} access</small>{isOwner && <Button variant="outline" size="sm" disabled={sync.dirty || sync.status === "saving"} onClick={() => setAccessOpen(true)}><Users size={14} />Workspace access</Button>}<Button variant="ghost" size="sm" disabled={sync.dirty} onClick={() => void signOut()}>Sign out</Button></div></SidebarFooter>
     </Sidebar>
     <SidebarInset className="app-main">
       <header className="topbar"><div className="breadcrumbs"><SidebarTrigger /><span>Projects</span><ChevronRight size={14} /><strong>{roadmap.application}</strong></div><span className="prototype-badge">SHARED WORKSPACE</span></header>
@@ -167,10 +184,10 @@ export default function RoadmapApp() {
 
         <Tabs value={view} onValueChange={setView} className="roadmap-tabs">
           <div className="map-toolbar"><TabsList variant="line"><TabsTrigger value="map"><MapIcon size={17} />Roadmap</TabsTrigger><TabsTrigger value="list"><ListChecks size={17} />Checklist</TabsTrigger></TabsList><div className="map-actions"><Button variant={readyOnly ? "secondary" : "ghost"} className={readyOnly ? "ready-active" : ""} onClick={() => setReadyOnly(v => !v)} aria-pressed={readyOnly}><span className="ready-bullet" />Ready now<span className="tiny-count">{ready.length}</span></Button><Button variant="ghost" onClick={() => setExpanded(new Set())} disabled={!expanded.size || view !== "map"}><Layers3 size={16} />Collapse all</Button><Button className="add-step" aria-label="Add step" disabled={!canEdit} onClick={() => addTask()}><Plus size={16} />Add step</Button></div></div>
-          <TabsContent value="map" className="map-panel"><RoadmapCanvas key={project.id} engineers={workspace.engineers} tasks={tasks} expanded={expanded} selected={selected} readyOnly={readyOnly} onExpand={onExpand} onOpen={onOpen} clearSelection={() => setSelected(null)} /></TabsContent>
-          <TabsContent value="list" className="checklist-panel"><div className="checklist-heading"><span>TASK / SUBSTEP</span><span>ENGINEERS / TEAM</span><span>STATUS</span></div>{renderRows()}{readyOnly && !ready.length && <p className="list-empty">No tasks are ready to start. Review the blocked tasks to see their prerequisites.</p>}</TabsContent>
+          <TabsContent value="map" className="map-panel">{!tasks.length ? emptyRoadmap : <RoadmapCanvas key={project.id} engineers={workspace.engineers} tasks={tasks} expanded={expanded} selected={selected} readyOnly={readyOnly} onExpand={onExpand} onOpen={onOpen} clearSelection={() => setSelected(null)} />}</TabsContent>
+          <TabsContent value="list" className="checklist-panel">{!tasks.length ? emptyRoadmap : <><div className="checklist-heading"><span>TASK / SUBSTEP</span><span>ENGINEERS / TEAM</span><span>STATUS</span></div>{renderRows()}{readyOnly && !ready.length && <p className="list-empty">No tasks are ready to start. Review the blocked tasks to see their prerequisites.</p>}</>}</TabsContent>
         </Tabs>
-        <footer className="workspace-footer"><span><GitBranch size={15} />Expand a workstream to see its substeps. Select a task to inspect its dependencies.</span><Button variant="ghost" size="sm" aria-label="Reset project progress" disabled={!canEdit} onClick={() => setResetOpen(true)}><RotateCcw size={13} />Reset progress</Button></footer>
+        <footer className="workspace-footer"><span><GitBranch size={15} />Expand a workstream to see its substeps. Select a task to inspect its dependencies.</span><Button variant="ghost" size="sm" aria-label="Reset project progress" disabled={!canEdit || !tasks.length} onClick={() => setResetOpen(true)}><RotateCcw size={13} />Reset progress</Button></footer>
       </main>
     </SidebarInset>
     <Sheet open={sheetOpen} onOpenChange={open => { setSheetOpen(open); if (!open) setDraft(null); }}><SheetContent className="task-sheet w-full sm:max-w-[470px]">
@@ -193,7 +210,7 @@ export default function RoadmapApp() {
         </div>{error && <p className="form-error" role="alert">{error}</p>}<div className="sheet-action-row"><Button type="button" variant="outline" onClick={() => { setDraft(null); if (!task) setSheetOpen(false); }}>Cancel</Button><Button type="submit" disabled={!canEdit}>Save step<Check size={15} /></Button></div>
       </form> : task && <>
         <div className="task-details"><div className="detail-status-line"><span className={`state-badge ${status}`}><StatusMark status={status} />{statusLabels[status]}</span><Button variant="ghost" size="sm" disabled={!canEdit} onClick={() => { setDraft({ ...task }); setError(""); }}><Pencil size={14} />Edit</Button></div>
-          <div className="task-status-controls"><TaskStatusControls key={task.id} task={task} tasks={tasks} disabled={!canEdit} onOpenChange={setStatusDialogOpen} onChange={(next, message) => { setRoadmap({ ...roadmap, tasks: next }); toast.success(message); }} /></div>
+          <div className="task-status-controls"><TaskStatusControls key={task.id} task={task} tasks={tasks} disabled={!canEdit} onOpenChange={setStatusDialogOpen} onChange={(next, message) => { setRoadmap({ ...roadmap, tasks: next }); toast.success(message); }} /><Button variant="ghost" className="delete-step-button" disabled={!canEdit} onClick={() => setDeleteTarget({ projectId: project.id, taskId: task.id })}><Trash2 size={15} />Delete step</Button></div>
           {status === "skipped" && <p className="not-needed-note">This work is not needed. It is excluded from completion totals and lets dependent work proceed.</p>}
           {!!impediments.length && <section className="impediment-section"><h3>{group ? `${impediments.length} impediment${impediments.length === 1 ? "" : "s"}` : "Impediment"}</h3>{impediments.map(t => <div key={t.id}>{group && <button className="impediment-task-link" onClick={() => onOpen(t.id)}>{t.title}<ChevronRight size={14} /></button>}<p>{t.blockedReason}</p></div>)}<p className="field-hint">This work is still required. Use Change status to resolve the impediment when the obstacle is removed.</p></section>}
           <section className="task-engineers"><div className="section-heading"><h3>Assigned engineers</h3><Button variant="ghost" size="sm" disabled={!canEdit} onClick={() => { setDraft({ ...task }); setError(""); }}>{(task.assigneeIds ?? []).length ? "Change" : "Assign"}</Button></div>{assignedEngineers(task, workspace.engineers).length ? <div className="assigned-engineer-list">{assignedEngineers(task, workspace.engineers).map(engineer => <span key={engineer.id}><Users size={13} />{engineer.name}</span>)}</div> : <p className="field-hint">No engineer assigned yet.</p>}</section>
@@ -206,6 +223,7 @@ export default function RoadmapApp() {
         </div><div className="sheet-bottom"><Button variant="outline" onClick={() => showMap(task.id)}><GitBranch size={16} />Show on map</Button>{group ? <Button onClick={() => { showMap(task.id, true); }}>Explore substeps<ArrowRight size={15} /></Button> : status === "done" ? <Button variant="outline" disabled={!canEdit} onClick={() => setReopen(task.id)}><RotateCcw size={15} />Reopen</Button> : status === "skipped" ? <span className="state-badge skipped"><StatusMark status="skipped" />Not needed</span> : <div className="status-actions">{status === "ready" && <Button variant="outline" disabled={!canEdit} onClick={() => updateStatus(task.id, "in-progress")}>Start task</Button>}<Button disabled={!canEdit || status === "blocked"} onClick={() => updateStatus(task.id, "done")}><Check size={15} />Mark complete</Button></div>}</div>
       </>}
     </SheetContent></Sheet>
+    {deleteTarget && deleteTarget.projectId === project.id && tasks.some(t => t.id === deleteTarget.taskId) && <DeleteStepDialog taskId={deleteTarget.taskId} tasks={tasks} disabled={!canEdit} onDelete={confirmDelete} onClose={() => setDeleteTarget(null)} />}
     <Dialog open={!!imported} onOpenChange={open => { if (!open) setImported(null); }}><DialogContent><DialogHeader><DialogTitle>Import {imported?.projects.length === 1 ? "this project" : "these projects"}?</DialogTitle><DialogDescription>Imported projects will be added alongside your existing projects, with their progress, engineers, and task assignments.</DialogDescription></DialogHeader><div className="import-summary"><strong>{imported?.projects.map(p => p.roadmap.application).join(", ")}</strong><span>{imported?.projects.length} project(s) · {imported?.engineers.length} engineer(s)</span></div><DialogFooter><Button variant="outline" onClick={() => setImported(null)}>Cancel</Button><Button onClick={() => { if (!imported || !canCreate) return; try { const next = mergeProjectImport(workspace, imported); setWorkspace(next); setExpanded(new Set()); setSelected(null); setSheetOpen(false); setImported(null); setBrowserProjects(false); try { localStorage.setItem("pathways-browser-imported", "1"); } catch { /* Optional preference. */ } toast.success("Projects imported."); } catch (e) { toast.error(e instanceof Error ? e.message : "Could not import projects."); } }}>Import projects</Button></DialogFooter></DialogContent></Dialog>
     <AlertDialog open={!!reopen} onOpenChange={open => { if (!open) setReopen(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reopen this task?</AlertDialogTitle><AlertDialogDescription>Dependent tasks that are complete or in progress will reset and become blocked until their prerequisites are resolved again. Tasks marked not needed keep that status.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { if (reopen) updateStatus(reopen, "todo"); setReopen(null); }}>Reopen task</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <AlertDialog open={resetOpen} onOpenChange={setResetOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reset progress for {roadmap.application}?</AlertDialogTitle><AlertDialogDescription>All tasks in this project will become required and return to pending. Impediments will be cleared. The steps, dependencies, project engineers, and task assignments will be kept. Other projects are unaffected.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><Button variant="outline" onClick={exportCurrent}>Export project</Button><AlertDialogAction onClick={() => { setRoadmap({ ...roadmap, tasks: tasks.map(t => { const next = { ...t, status: "todo" as const }; delete next.blockedReason; return next; }) }); setResetOpen(false); toast.success("Project progress reset."); }}>Reset progress</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleRoadmap } from "../lib/sample-roadmap";
-import { validateRoadmap, taskStatus, progress, progressPercent, progressText, reconcile, changeTaskStatus, resolveImpediments, blockedBy, type Task } from "../lib/roadmap";
+import { validateRoadmap, taskStatus, progress, progressPercent, progressText, reconcile, changeTaskStatus, resolveImpediments, blockedBy, deleteStep, planStepDeletion, type Task } from "../lib/roadmap";
 import { layoutRoadmap } from "../lib/roadmap-layout";
 const fresh = () => structuredClone(sampleRoadmap);
 const complete = (tasks: Task[], ids: string[]) => tasks.map(t => ids.includes(t.id) ? { ...t, status: "done" as const } : t);
@@ -141,4 +141,72 @@ test("collapsed and expanded layouts have finite, nonoverlapping sibling bounds"
     }
     assert.ok(layout.edges.every(e => layout.nodes.some(n => n.id === e.source) && layout.nodes.some(n => n.id === e.target)));
   }
+});
+
+test("deleting a step removes its prerequisite links while preserving unrelated work", () => {
+  const original = fresh();
+  const before = structuredClone(original);
+  const impact = planStepDeletion("runtime-access", original.tasks);
+  assert.deepEqual(impact.removed.map(t => t.id), ["runtime-access"]);
+  assert.deepEqual(impact.dependencyChanges.map(c => c.task.id), ["pull"]);
+  const after = deleteStep("runtime-access", original);
+  assert.ok(!after.tasks.some(t => t.id === "runtime-access"));
+  assert.deepEqual(after.tasks.find(t => t.id === "pull")!.dependsOn, ["scan"]);
+  assert.deepEqual(after.tasks.find(t => t.id === "runner-access"), original.tasks.find(t => t.id === "runner-access"));
+  assert.deepEqual(original, before);
+  assert.equal(progress(null, after.tasks).total, 12);
+});
+
+test("deleting a workstream removes every descendant and leaves no dangling dependencies", () => {
+  const original = fresh();
+  const template = original.tasks.find(t => t.id === "retention")!;
+  original.tasks.push({ ...template, id: "nested", parentId: "registry", dependsOn: [] }, { ...template, id: "nested-leaf", parentId: "nested", dependsOn: [] });
+  original.tasks.find(t => t.id === "pipeline")!.dependsOn.push("nested-leaf");
+  const impact = planStepDeletion("registry", original.tasks);
+  assert.equal(impact.removed.length, 7);
+  assert.ok(impact.removed.some(t => t.id === "nested-leaf"));
+  const after = deleteStep("registry", original);
+  const ids = new Set(after.tasks.map(t => t.id));
+  assert.ok(after.tasks.every(t => (!t.parentId || ids.has(t.parentId)) && t.dependsOn.every(dep => ids.has(dep))));
+  assert.deepEqual(after.tasks.find(t => t.id === "pipeline")!.dependsOn, ["build", "runner-access"]);
+  assert.deepEqual(after.tasks.find(t => t.id === "complete")!.dependsOn, ["pull", "container", "network"]);
+  assert.ok(after.tasks.some(t => t.id === "dockerfile" && t.status === "done"));
+});
+
+test("removing blocked prerequisites unlocks dependent work but retains other impediments", () => {
+  const original = fresh();
+  original.tasks = changeTaskStatus("identity", "blocked", original.tasks, "Waiting for credentials");
+  original.tasks = changeTaskStatus("retention", "blocked", original.tasks, "Policy decision pending");
+  const after = deleteStep("identity", original);
+  assert.equal(taskStatus("permissions", after.tasks), "ready");
+  assert.equal(after.tasks.find(t => t.id === "retention")!.blockedReason, "Policy decision pending");
+  assert.equal(taskStatus("retention", after.tasks), "blocked");
+  assert.equal(taskStatus("pipeline", after.tasks), "blocked");
+});
+
+test("a workstream losing its last substep keeps its displayed progress rather than stale stored status", () => {
+  const template = fresh().tasks[0];
+  for (const state of ["todo", "in-progress", "done", "skipped", "blocked"] as const) {
+    const original = { ...fresh(), tasks: [
+      { ...template, id: "parent", parentId: null, dependsOn: [], status: "done" as const },
+      { ...template, id: "child", parentId: "parent", dependsOn: [], status: state, ...(state === "blocked" ? { blockedReason: "Child impediment" } : {}) },
+      { ...template, id: "dependent", parentId: null, dependsOn: ["parent"], status: state === "done" || state === "skipped" ? "done" as const : "todo" as const },
+    ] };
+    const impact = planStepDeletion("child", original.tasks);
+    assert.deepEqual(impact.emptiedParents.map(t => t.id), ["parent"]);
+    const after = deleteStep("child", original);
+    assert.equal(after.tasks[0].status, state === "blocked" ? "todo" : state);
+    assert.equal(after.tasks[0].blockedReason, undefined);
+    assert.equal(after.tasks[1].status, original.tasks[2].status);
+  }
+});
+
+test("the final step can be deleted, leaving an empty valid roadmap and layout", async () => {
+  const original = { ...fresh(), tasks: [fresh().tasks[0]] };
+  const after = deleteStep(original.tasks[0].id, original);
+  assert.deepEqual(validateRoadmap(after).tasks, []);
+  assert.deepEqual(progress(null, after.tasks), { done: 0, total: 0, skipped: 0 });
+  assert.equal(progressText(progress(null, after.tasks)), "No steps yet");
+  assert.deepEqual(await layoutRoadmap(after.tasks, new Set()), { nodes: [], edges: [] });
+  assert.throws(() => deleteStep("missing", after), /no longer exists/);
 });

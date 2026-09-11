@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { WorkspaceStore, WorkspaceError, type WorkspaceRepository, type WorkspaceState } from "../lib/workspace-store";
 import { createProject, updateTeam, saveProjectTask, selectTaskTeam } from "../lib/projects";
 import { sampleRoadmap } from "../lib/sample-roadmap";
+import { deleteStep } from "../lib/roadmap";
 import type { Identity } from "../lib/shared";
 
 export class MemoryRepository implements WorkspaceRepository {
@@ -121,4 +122,26 @@ test("owners manage shared teams; scoped editors see only permitted members and 
   assert.deepEqual(after.workspace!.teams.find(t => t.id === "platform")!.engineerIds, ["visible", "hidden"]);
   const { teams: _teams, ...legacy } = after.workspace!;
   await assert.rejects(service.save(owner, after.revision, legacy), status(400));
+});
+
+test("deleting steps respects project permissions and stale revisions", async () => {
+  const service = store();
+  let snapshot = await service.get(owner);
+  const workspace = snapshot.workspace!;
+  const hidden = createProject(workspace.projects[0].roadmap, "Hidden", "Private");
+  workspace.projects.push(hidden);
+  snapshot = await service.save(owner, snapshot.revision, workspace);
+  await service.saveMembers(owner, snapshot.revision, [...snapshot.members!, { email: editor.email, role: "editor", projectIds: [workspace.projects[0].id] }, { email: viewer.email, role: "viewer", projectIds: null }]);
+  const scoped = await service.get(editor);
+  const deletion = structuredClone(scoped.workspace!);
+  while (deletion.projects[0].roadmap.tasks.length) deletion.projects[0].roadmap = deleteStep(deletion.projects[0].roadmap.tasks[0].id, deletion.projects[0].roadmap);
+  await service.save(editor, scoped.revision, deletion);
+  const after = await service.get(owner);
+  assert.deepEqual(after.workspace!.projects[0].roadmap.tasks, []);
+  assert.deepEqual(after.workspace!.projects[1], hidden);
+  const view = await service.get(viewer);
+  const forbidden = structuredClone(view.workspace!); forbidden.projects[1].roadmap = deleteStep(hidden.roadmap.tasks[0].id, hidden.roadmap);
+  await assert.rejects(service.save(viewer, view.revision, forbidden), status(403));
+  await assert.rejects(service.save(editor, scoped.revision, deletion), status(409));
+  assert.deepEqual((await service.get(owner)).workspace!.projects[1], hidden);
 });
