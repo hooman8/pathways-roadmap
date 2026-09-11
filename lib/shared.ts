@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { validateWorkspace, type Workspace } from "./projects";
+import type { Task } from "./roadmap";
 
 export const memberInputSchema = z.object({
   email: z.string().trim().email().max(254).transform(value => value.toLowerCase()),
@@ -38,20 +39,60 @@ export type MergeConflict = { path: string; mine: unknown; shared: unknown };
 // criteria) are one field. Deletion versus modification is always a conflict.
 export function mergeWorkspaces(base: Workspace, mine: Workspace, shared: Workspace) {
   const conflicts: MergeConflict[] = [];
-  function merge(b: unknown, l: unknown, r: unknown, path: string): unknown {
+  function mergeTaskOrder(b: Task[], l: Task[], r: Task[], merged: Task[], path: string): Task[] {
+    const orders = new Map<string | null, Task[]>();
+    for (const parentId of new Set(merged.map(t => t.parentId))) {
+      const siblings = merged.filter(t => t.parentId === parentId);
+      const ids = siblings.map(t => t.id);
+      const positions = [b, l, r].map(tasks => new Map(tasks.filter(t => t.parentId === parentId).map((t, i) => [t.id, i])));
+      const before = (positions: Map<string, number>, a: string, z: string) => positions.has(a) && positions.has(z) ? positions.get(a)! < positions.get(z)! : undefined;
+      const edges = new Map(ids.map(id => [id, new Set<string>()]));
+      const incoming = new Map(ids.map(id => [id, 0]));
+      let conflicted = false;
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+        const [original, local, remote] = positions.map(p => before(p, ids[i], ids[j]));
+        let order: boolean | undefined;
+        if (local === undefined) order = remote;
+        else if (remote === undefined || local === remote || remote === original) order = local;
+        else if (local === original) order = remote;
+        else { conflicted = true; order = local; }
+        if (order === undefined) continue;
+        const [first, second] = order ? [ids[i], ids[j]] : [ids[j], ids[i]];
+        edges.get(first)!.add(second); incoming.set(second, incoming.get(second)! + 1);
+      }
+      const ordered: Task[] = [];
+      const remaining = new Set(ids);
+      while (remaining.size) {
+        const id = ids.find(id => remaining.has(id) && incoming.get(id) === 0);
+        if (!id) { conflicted = true; break; }
+        remaining.delete(id); ordered.push(siblings.find(t => t.id === id)!);
+        edges.get(id)!.forEach(next => incoming.set(next, incoming.get(next)! - 1));
+      }
+      if (conflicted) {
+        const label = parentId ? merged.find(t => t.id === parentId)?.title ?? "Substeps" : "Main roadmap";
+        const describe = (tasks: Task[]) => tasks.filter(t => t.parentId === parentId).map(t => t.title).join(" → ");
+        conflicts.push({ path: `${path} / ${label} order`, mine: describe(l), shared: describe(r) });
+        orders.set(parentId, siblings);
+      } else orders.set(parentId, ordered);
+    }
+    // Only sibling positions change. Nested workstreams keep their own order.
+    return merged.map(task => orders.get(task.parentId)!.shift()!);
+  }
+  function merge(b: unknown, l: unknown, r: unknown, path: string, field?: string): unknown {
     if (same(l, b)) return r;
     if (same(r, b) || same(l, r)) return l;
     const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
     if (Array.isArray(b) && Array.isArray(l) && Array.isArray(r) && [...b, ...l, ...r].every(v => record(v) && typeof v.id === "string")) {
       const ids = [...new Set([...r, ...l].map(v => v.id))];
-      return ids.map(id => {
+      const merged = ids.map(id => {
         const item = l.find(v => v.id === id) ?? r.find(v => v.id === id);
         const label = item?.title ?? item?.name ?? item?.roadmap?.application ?? id;
         return merge(b.find(v => v.id === id), l.find(v => v.id === id), r.find(v => v.id === id), `${path} / ${label}`);
       }).filter(v => v !== undefined);
+      return field === "tasks" ? mergeTaskOrder(b as Task[], l as Task[], r as Task[], merged as Task[], path) : merged;
     }
     if (record(b) && record(l) && record(r)) {
-      return Object.fromEntries([...new Set([...Object.keys(b), ...Object.keys(l), ...Object.keys(r)])].map(key => [key, merge(b[key], l[key], r[key], path ? `${path} / ${key}` : key)]));
+      return Object.fromEntries([...new Set([...Object.keys(b), ...Object.keys(l), ...Object.keys(r)])].map(key => [key, merge(b[key], l[key], r[key], path ? `${path} / ${key}` : key, key)]));
     }
     conflicts.push({ path, mine: l, shared: r });
     return l;

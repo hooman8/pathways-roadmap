@@ -53,6 +53,18 @@ Project-scoped members see only engineers in their permitted projects. Only owne
 can change the shared team directory; importing teams with new names or memberships
 also requires an owner. Engineer records do not grant sign-in access.
 
+### Rearranging substeps
+
+Open a workstream and use the **Move up** / **Move down** arrows beside its
+substeps. Order saves automatically for the shared project and is used in the
+substep list and checklist. Moving a workstream among its siblings keeps its own
+substeps together. Prerequisites, assignments, and progress keep their values.
+The dependency map still arranges steps around their prerequisite relationships.
+
+Reordering combines with concurrent task edits. Incompatible simultaneous order
+changes show a conflict for review instead of silently replacing an engineer's
+chosen order. Viewers see the saved order but cannot change it.
+
 ### Deleting steps
 
 Open a step and choose **Delete step** next to **Change status**. Review the

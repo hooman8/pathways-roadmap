@@ -337,3 +337,12 @@ button { cursor: pointer; } button:disabled { cursor: not-allowed; }
 .empty-roadmap { min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px; gap: 14px; }
 .empty-roadmap > svg { color: #738399; }.empty-roadmap h2 { font-size: 22px; font-weight: 600; }
 .empty-roadmap p { font-size: 16px; color: #637187; line-height: 1.5; }
+
+.substep-order-hint { margin: 12px 0 6px; font-size: 14px; line-height: 1.5; }
+.substep-row { display: flex; align-items: center; gap: 10px; }
+.detail-task-list .substep-open { flex: 1; min-width: 0; width: auto; }
+.substep-open > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+.substep-order-controls { display: flex; flex-direction: column; flex-shrink: 0; gap: 4px; padding: 6px 0; }
+.detail-task-list .substep-order-controls button { width: 32px; height: 32px; padding: 6px; justify-content: center; color: #536779; }
+.detail-task-list .substep-order-controls button > svg:last-child { margin: 0; color: inherit; }
+.detail-task-list .substep-order-controls button:disabled { opacity: .35; }

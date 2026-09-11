@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronRight, Download, GitBranch, Layers3, ListChecks, Map as MapIcon, Pencil, Plus, RotateCcw, Trash2, Upload, Users, Workflow, X } from "lucide-react";
+import { ArrowDown, ArrowDownRight, ArrowRight, ArrowUp, ArrowUpRight, Check, ChevronRight, Download, GitBranch, Layers3, ListChecks, Map as MapIcon, Pencil, Plus, RotateCcw, Trash2, Upload, Users, Workflow, X } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Sidebar, SidebarProvider, SidebarHeader, SidebarContent, SidebarFooter, SidebarInset, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarTrigger, SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
 import RoadmapCanvas, { StatusMark } from "./roadmap-canvas";
-import { changeTaskStatus, childrenOf, isGroup, isResolved, leafTasks, progress, progressPercent, progressText, prerequisites, relatedTasks, statusLabels, taskStatus, deleteStep, type Roadmap, type Task } from "@/lib/roadmap";
+import { changeTaskStatus, childrenOf, isGroup, isResolved, leafTasks, progress, progressPercent, progressText, prerequisites, relatedTasks, statusLabels, taskStatus, deleteStep, moveStep, type Roadmap, type Task } from "@/lib/roadmap";
 import { sampleRoadmap } from "@/lib/sample-roadmap";
 import ProjectDialog from "./project-dialog";
 import { WORKSPACE_KEY, readWorkspace, migrateRoadmap, updateProject, assignedEngineers, exportProject, parseProjectImport, mergeProjectImport, LEGACY_KEY, eligibleEngineers, selectTaskTeam, saveProjectTask, type ImportedProjects } from "@/lib/projects";
@@ -106,6 +106,17 @@ export default function RoadmapApp() {
     const reset = next.filter(t => t.id !== id && t.status === "todo" && tasks.find(old => old.id === t.id)?.status !== "todo").length;
     setRoadmap({ ...roadmap, tasks: next });
     toast.success(nextStatus === "done" ? "Task complete. Dependencies updated." : nextStatus === "in-progress" ? "Task started." : `Task reopened.${reset ? ` ${reset} downstream task${reset === 1 ? "" : "s"} reset.` : ""}`);
+  }
+  function reorderSubstep(id: string, direction: "up" | "down") {
+    if (!canEdit) return;
+    try {
+      setWorkspace(current => {
+        const currentProject = current.projects.find(p => p.id === project.id);
+        if (!currentProject) throw new Error("This project no longer exists.");
+        return updateProject(current, project.id, { ...currentProject.roadmap, tasks: moveStep(id, direction, currentProject.roadmap.tasks) });
+      });
+      toast.success(`Substep moved ${direction}.`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not move the substep."); }
   }
   function addTask(parentId: string | null = null) {
     if (!canEdit) return;
@@ -215,7 +226,7 @@ export default function RoadmapApp() {
           {!!impediments.length && <section className="impediment-section"><h3>{group ? `${impediments.length} impediment${impediments.length === 1 ? "" : "s"}` : "Impediment"}</h3>{impediments.map(t => <div key={t.id}>{group && <button className="impediment-task-link" onClick={() => onOpen(t.id)}>{t.title}<ChevronRight size={14} /></button>}<p>{t.blockedReason}</p></div>)}<p className="field-hint">This work is still required. Use Change status to resolve the impediment when the obstacle is removed.</p></section>}
           <section className="task-engineers"><div className="section-heading"><h3>Assigned engineers</h3><Button variant="ghost" size="sm" disabled={!canEdit} onClick={() => { setDraft({ ...task }); setError(""); }}>{(task.assigneeIds ?? []).length ? "Change" : "Assign"}</Button></div>{assignedEngineers(task, workspace.engineers).length ? <div className="assigned-engineer-list">{assignedEngineers(task, workspace.engineers).map(engineer => <span key={engineer.id}><Users size={13} />{engineer.name}</span>)}</div> : <p className="field-hint">No engineer assigned yet.</p>}</section>
           {task.description && <p className="task-description">{task.description}</p>}
-          {group && <section className="detail-section"><div className="section-heading"><h3>Substeps</h3><span>{progressText(progress(task.id, tasks))}</span></div><Progress value={progressPercent(progress(task.id, tasks))} aria-label="Workstream completion" /><div className="detail-task-list">{childrenOf(task.id, tasks).map(t => <button key={t.id} onClick={() => onOpen(t.id)}><StatusMark status={taskStatus(t.id, tasks)} /><span>{t.title}<small>{statusLabels[taskStatus(t.id, tasks)]}</small></span><ChevronRight size={15} /></button>)}</div><Button variant="outline" size="sm" disabled={!canEdit} onClick={() => addTask(task.id)}><Plus size={14} />Add substep</Button></section>}
+          {group && <section className="detail-section"><div className="section-heading"><h3>Substeps</h3><span>{progressText(progress(task.id, tasks))}</span></div><Progress value={progressPercent(progress(task.id, tasks))} aria-label="Workstream completion" /><p className="field-hint substep-order-hint">{canEdit ? "Use the arrows to change display order. Prerequisites control what must finish first." : "Substeps follow the project’s saved display order."}</p><div className="detail-task-list">{childrenOf(task.id, tasks).map((t, index, siblings) => <div className="substep-row" key={t.id}><button className="substep-open" onClick={() => onOpen(t.id)}><StatusMark status={taskStatus(t.id, tasks)} /><span>{t.title}<small>{statusLabels[taskStatus(t.id, tasks)]}</small></span><ChevronRight size={15} /></button>{canEdit && <div className="substep-order-controls" role="group" aria-label={`Reorder ${t.title}`}><Button variant="outline" size="icon" disabled={index === 0} aria-label={`Move ${t.title} up`} title="Move up" onClick={() => reorderSubstep(t.id, "up")}><ArrowUp size={16} /></Button><Button variant="outline" size="icon" disabled={index === siblings.length - 1} aria-label={`Move ${t.title} down`} title="Move down" onClick={() => reorderSubstep(t.id, "down")}><ArrowDown size={16} /></Button></div>}</div>)}</div><Button variant="outline" size="sm" disabled={!canEdit} onClick={() => addTask(task.id)}><Plus size={14} />Add substep</Button></section>}
           {!!blockers.length && status !== "skipped" && <section className="detail-section blocker-section"><h3>Waiting on {blockers.length} prerequisite{blockers.length > 1 ? "s" : ""}</h3><p className="field-hint">This dependency block clears automatically when the required work is resolved.</p><div className="detail-task-list">{blockers.map(t => <button key={t.id} onClick={() => onOpen(t.id)}><StatusMark status={taskStatus(t.id, tasks)} /><span>{t.title}<small>{t.blockedReason ? `Impediment: ${t.blockedReason}` : t.owner}</small></span><ArrowUpRight size={15} /></button>)}</div></section>}
           {!!task.criteria.filter(Boolean).length && <section className="detail-section"><h3>Definition of done</h3><ul className="criteria-list">{task.criteria.filter(Boolean).map((criterion, i) => <li key={i}><Check size={15} />{criterion}</li>)}</ul></section>}
           {!!prerequisiteTasks.length && !blockers.length && <section className="detail-section"><h3>Prerequisites</h3><div className="detail-task-list">{prerequisiteTasks.map(t => { const id = t.id; return <button key={id} onClick={() => onOpen(id)}><StatusMark status={taskStatus(id, tasks)} /><span>{t.title}</span><ChevronRight size={15} /></button>; })}</div></section>}

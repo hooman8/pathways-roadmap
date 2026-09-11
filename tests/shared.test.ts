@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { migrateRoadmap, createProject } from "../lib/projects";
 import { sampleRoadmap } from "../lib/sample-roadmap";
 import { mergeWorkspaces, content } from "../lib/shared";
-import { changeTaskStatus, resolveImpediments, deleteStep } from "../lib/roadmap";
+import { changeTaskStatus, resolveImpediments, deleteStep, moveStep, childrenOf } from "../lib/roadmap";
 
 test("simultaneous edits to separate tasks and projects are preserved", () => {
   const base = migrateRoadmap(sampleRoadmap);
@@ -93,4 +93,41 @@ test("deletion merges with independent edits but conflicts with edits to removed
   const newChild = structuredClone(base);
   newChild.projects[0].roadmap.tasks.push({ ...newChild.projects[0].roadmap.tasks.find(t => t.id === "runtime-access")!, id: "new-child" });
   assert.ok(mergeWorkspaces(base, mine, newChild).conflicts.length > 0);
+});
+
+test("a substep reorder survives concurrent task edits in either save order", () => {
+  const base = migrateRoadmap(sampleRoadmap);
+  const mine = structuredClone(base), shared = structuredClone(base);
+  mine.projects[0].roadmap.tasks = moveStep("runtime-access", "up", mine.projects[0].roadmap.tasks);
+  shared.projects[0].roadmap.tasks.find(t => t.id === "runtime-access")!.description = "New approval instructions";
+  for (const [local, remote] of [[mine, shared], [shared, mine]]) {
+    const merged = mergeWorkspaces(base, local, remote);
+    assert.deepEqual(merged.conflicts, []);
+    assert.deepEqual(childrenOf("network", merged.workspace.projects[0].roadmap.tasks).map(t => t.id), ["runtime-access", "runner-access"]);
+    assert.equal(merged.workspace.projects[0].roadmap.tasks.find(t => t.id === "runtime-access")!.description, "New approval instructions");
+  }
+});
+
+test("independent sibling reorders and concurrent insertions or deletions are retained", () => {
+  const base = migrateRoadmap(sampleRoadmap);
+  const mine = structuredClone(base), shared = structuredClone(base);
+  mine.projects[0].roadmap.tasks = moveStep("runtime-access", "up", mine.projects[0].roadmap.tasks);
+  shared.projects[0].roadmap.tasks = moveStep("retention", "up", shared.projects[0].roadmap.tasks);
+  shared.projects[0].roadmap.tasks.push({ ...shared.projects[0].roadmap.tasks.find(t => t.id === "runner-access")!, id: "new-check", title: "Additional connectivity check" });
+  shared.projects[0].roadmap = deleteStep("dockerfile", shared.projects[0].roadmap);
+  const merged = mergeWorkspaces(base, mine, shared);
+  assert.deepEqual(merged.conflicts, []);
+  const tasks = merged.workspace.projects[0].roadmap.tasks;
+  assert.deepEqual(childrenOf("network", tasks).map(t => t.id), ["runtime-access", "runner-access", "new-check"]);
+  assert.deepEqual(childrenOf("registry", tasks).map(t => t.id), ["repository", "identity", "retention", "permissions"]);
+  assert.ok(!tasks.some(t => t.id === "dockerfile"));
+});
+
+test("incompatible concurrent sibling moves produce an explicit order conflict", () => {
+  const base = migrateRoadmap(sampleRoadmap);
+  const mine = structuredClone(base), shared = structuredClone(base);
+  mine.projects[0].roadmap.tasks = moveStep("identity", "up", mine.projects[0].roadmap.tasks);
+  shared.projects[0].roadmap.tasks = moveStep("permissions", "up", shared.projects[0].roadmap.tasks);
+  const merged = mergeWorkspaces(base, mine, shared);
+  assert.ok(merged.conflicts.some(c => c.path.endsWith("Registry setup order")));
 });

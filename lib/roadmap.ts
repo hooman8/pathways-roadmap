@@ -20,6 +20,18 @@ export const statusLabels: Record<Status, string> = { ready: "Ready to start", "
 export const isResolved = (task: Task) => task.status === "done" || task.status === "skipped";
 export const childrenOf = (id: string, tasks: Task[]) => tasks.filter(t => t.parentId === id);
 export const isGroup = (id: string, tasks: Task[]) => tasks.some(t => t.parentId === id);
+export function moveStep(id: string, direction: "up" | "down", tasks: Task[]): Task[] {
+  const task = tasks.find(t => t.id === id);
+  if (!task) throw new Error("This step no longer exists.");
+  const siblings = tasks.filter(t => t.parentId === task.parentId);
+  const index = siblings.findIndex(t => t.id === id);
+  const neighbor = siblings[index + (direction === "up" ? -1 : 1)];
+  if (!neighbor) return tasks;
+  const next = [...tasks];
+  const from = tasks.findIndex(t => t.id === id), to = tasks.findIndex(t => t.id === neighbor.id);
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
 export function leafTasks(id: string, tasks: Task[]): Task[] {
   const children = childrenOf(id, tasks);
   return children.length ? children.flatMap(t => leafTasks(t.id, tasks)) : tasks.filter(t => t.id === id);

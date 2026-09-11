@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleRoadmap } from "../lib/sample-roadmap";
-import { progress, changeTaskStatus, deleteStep } from "../lib/roadmap";
+import { progress, changeTaskStatus, deleteStep, moveStep } from "../lib/roadmap";
 import { migrateRoadmap, createProject, updateProject, setProjectTeam, validateWorkspace, exportProject, parseProjectImport, mergeProjectImport, readWorkspace, WORKSPACE_KEY, LEGACY_KEY, updateTeam, selectTaskTeam, eligibleEngineers, saveProjectTask } from "../lib/projects";
 
 function workspaceWithTeam() {
@@ -202,4 +202,17 @@ test("step deletion preserves team directories, project engineers, other project
   assert.deepEqual(parseProjectImport(exportProject(after.projects[0], after.engineers, after.teams)).projects[0], after.projects[0]);
   const added = saveProjectTask(after, after.projects[0].id, { ...workspace.projects[0].roadmap.tasks[0], id: "new-step", status: "todo" });
   assert.equal(added.projects[0].roadmap.tasks.length, 1);
+});
+
+test("substep order survives shared validation, project copies, and export/import", () => {
+  const workspace = workspaceWithTeam();
+  const project = workspace.projects[0];
+  const reordered = { ...project.roadmap, tasks: moveStep("runtime-access", "up", project.roadmap.tasks) };
+  const saved = updateProject(workspace, project.id, reordered);
+  const restored = parseProjectImport(exportProject(saved.projects[0], saved.engineers, saved.teams)).projects[0];
+  assert.deepEqual(restored.roadmap.tasks.map(t => t.id), reordered.tasks.map(t => t.id));
+  assert.deepEqual(restored.engineerIds, project.engineerIds);
+  assert.deepEqual(saved.teams, workspace.teams);
+  const copied = createProject(reordered, "Copy", "Registry");
+  assert.deepEqual(copied.roadmap.tasks.map(t => t.title), reordered.tasks.map(t => t.title));
 });

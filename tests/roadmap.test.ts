@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleRoadmap } from "../lib/sample-roadmap";
-import { validateRoadmap, taskStatus, progress, progressPercent, progressText, reconcile, changeTaskStatus, resolveImpediments, blockedBy, deleteStep, planStepDeletion, type Task } from "../lib/roadmap";
+import { validateRoadmap, taskStatus, progress, progressPercent, progressText, reconcile, changeTaskStatus, resolveImpediments, blockedBy, deleteStep, planStepDeletion, moveStep, childrenOf, type Task } from "../lib/roadmap";
 import { layoutRoadmap } from "../lib/roadmap-layout";
 const fresh = () => structuredClone(sampleRoadmap);
 const complete = (tasks: Task[], ids: string[]) => tasks.map(t => ids.includes(t.id) ? { ...t, status: "done" as const } : t);
@@ -209,4 +209,34 @@ test("the final step can be deleted, leaving an empty valid roadmap and layout",
   assert.equal(progressText(progress(null, after.tasks)), "No steps yet");
   assert.deepEqual(await layoutRoadmap(after.tasks, new Set()), { nodes: [], edges: [] });
   assert.throws(() => deleteStep("missing", after), /no longer exists/);
+});
+
+test("moving local approval before wholesale changes only sibling display order", () => {
+  const template = fresh().tasks[0];
+  const tasks: Task[] = [
+    { ...template, id: "approval", title: "Architecture approvals", status: "todo", dependsOn: [] },
+    { ...template, id: "wholesale", title: "Wholesale approval", status: "todo", parentId: "approval", dependsOn: ["local"] },
+    { ...template, id: "other", title: "Other workstream", status: "todo", dependsOn: [] },
+    { ...template, id: "local", title: "Local approval", status: "todo", parentId: "approval", dependsOn: [] },
+  ];
+  const before = structuredClone(tasks);
+  const moved = moveStep("local", "up", tasks);
+  assert.deepEqual(childrenOf("approval", moved).map(t => t.id), ["local", "wholesale"]);
+  assert.equal(taskStatus("wholesale", moved), "blocked");
+  assert.equal(taskStatus("local", moved), "ready");
+  assert.deepEqual(moved[2], tasks[2]);
+  for (const task of moved) assert.deepEqual(task, before.find(t => t.id === task.id));
+  assert.deepEqual(tasks, before);
+  assert.deepEqual(moveStep("local", "down", moved), tasks);
+  assert.deepEqual(moveStep("local", "up", moved), moved);
+  assert.deepEqual(moveStep("wholesale", "down", moved), moved);
+  assert.throws(() => moveStep("missing", "up", moved), /no longer exists/);
+});
+
+test("moving a nested workstream keeps its descendants in their original order", () => {
+  const roadmap = fresh();
+  roadmap.tasks.find(t => t.id === "registry")!.parentId = "network";
+  const next = moveStep("registry", "down", roadmap.tasks);
+  assert.deepEqual(childrenOf("registry", next), childrenOf("registry", roadmap.tasks));
+  assert.deepEqual(childrenOf("network", next).map(t => t.id), ["runner-access", "registry", "runtime-access"]);
 });
