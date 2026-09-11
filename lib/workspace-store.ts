@@ -60,9 +60,13 @@ export class WorkspaceStore {
     const projects = state.workspace.projects.filter(p => canSee(member, p.id));
     const engineerIds = new Set(projects.flatMap(p => p.engineerIds));
     const allProjects = member.role === "owner" || member.projectIds === null;
+    const teamIds = new Set(projects.flatMap(p => p.roadmap.tasks.map(t => t.teamId)));
     return {
       workspace: projects.length ? { ...state.workspace, projects, activeProjectId: projects[0].id,
-        engineers: allProjects ? state.workspace.engineers : state.workspace.engineers.filter(e => engineerIds.has(e.id)) } : null,
+        engineers: allProjects ? state.workspace.engineers : state.workspace.engineers.filter(e => engineerIds.has(e.id)),
+        teams: allProjects ? state.workspace.teams : state.workspace.teams
+          .filter(t => teamIds.has(t.id) || t.engineerIds.some(id => engineerIds.has(id)))
+          .map(t => ({ ...t, engineerIds: t.engineerIds.filter(id => engineerIds.has(id)) })) } : null,
       revision: state.revision, updatedAt: state.updatedAt,
       updatedBy: allProjects ? state.updatedBy : "A workspace member",
       user, membership: { email: member.email, role: member.role, projectIds: member.projectIds },
@@ -77,12 +81,15 @@ export class WorkspaceStore {
     const { state, member } = await this.authorized(user);
     if (member.role === "viewer") throw new WorkspaceError(403, "Your account has view-only access.");
     if (state.revision !== revision) throw new WorkspaceError(409, "The shared workspace changed.", this.present(state, member, user));
+    if (!input || typeof input !== "object" || !("teams" in input)) throw new WorkspaceError(400, "Teams are now available. Export any unsaved draft, then refresh the page before saving.");
     let next: Workspace;
     try { next = validateWorkspace(input); } catch (error) { throw new WorkspaceError(400, error instanceof Error ? error.message : "Invalid workspace."); }
     const allProjects = member.role === "owner" || member.projectIds === null;
     const visible = state.workspace.projects.filter(p => canSee(member, p.id));
     if (visible.some(p => !next.projects.some(n => n.id === p.id))) throw new WorkspaceError(400, "Existing projects must be retained.");
     if (!allProjects && next.projects.some(p => !visible.some(v => v.id === p.id))) throw new WorkspaceError(403, "You can only edit your assigned projects.");
+    if (member.role !== "owner" && !same(next.teams, this.present(state, member, user).workspace?.teams)) throw new WorkspaceError(403, "Only a workspace owner can create or change teams and their members.");
+    if (member.role === "owner" && state.workspace.teams.some(t => !next.teams.some(n => n.id === t.id))) throw new WorkspaceError(400, "Existing teams must be retained.");
     // Engineers are shared identities. Editors may add them but may not rewrite
     // an existing identity used by other projects.
     for (const engineer of next.engineers) {
@@ -92,7 +99,7 @@ export class WorkspaceStore {
     const projects = [...state.workspace.projects.map(p => next.projects.find(n => n.id === p.id) ?? p), ...next.projects.filter(p => !state.workspace.projects.some(old => old.id === p.id))];
     const engineers = [...state.workspace.engineers.map(e => next.engineers.find(n => n.id === e.id) ?? e), ...next.engineers.filter(e => !state.workspace.engineers.some(old => old.id === e.id))];
     let workspace: Workspace;
-    try { workspace = validateWorkspace({ ...state.workspace, projects, engineers }); }
+    try { workspace = validateWorkspace({ ...state.workspace, projects, engineers, teams: member.role === "owner" ? next.teams : state.workspace.teams }); }
     catch { throw new WorkspaceError(400, "These changes would invalidate another project’s assignments."); }
     if (!await this.compareAndSwap(state, workspace, state.members, user)) throw new WorkspaceError(409, "The shared workspace changed.", await this.get(user));
     return this.get(user);

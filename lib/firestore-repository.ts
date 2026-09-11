@@ -1,12 +1,12 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { WorkspaceError, type WorkspaceRepository, type WorkspaceState } from "./workspace-store";
-import type { Project, Workspace } from "./projects";
+import { validateWorkspace, type Project, type Workspace } from "./projects";
 import { same } from "./shared";
 
-type Metadata = Omit<WorkspaceState, "workspace"> & { projectIds: string[]; engineers: Workspace["engineers"] };
+type Metadata = Omit<WorkspaceState, "workspace"> & { projectIds: string[]; engineers: Workspace["engineers"]; teams?: Workspace["teams"] };
 function metadata(state: WorkspaceState): Metadata {
   return { revision: state.revision, members: state.members, updatedAt: state.updatedAt, updatedBy: state.updatedBy,
-    projectIds: state.workspace.projects.map(p => p.id), engineers: state.workspace.engineers };
+    projectIds: state.workspace.projects.map(p => p.id), engineers: state.workspace.engineers, teams: state.workspace.teams };
 }
 function assertSize(value: unknown) {
   if (Buffer.byteLength(JSON.stringify(value)) > 850_000) throw new WorkspaceError(413, "A project or its access settings exceed the storage limit. Split large projects into smaller roadmaps.");
@@ -28,7 +28,7 @@ export class FirestoreRepository implements WorkspaceRepository {
       const documents = await transaction.getAll(...meta.projectIds.map(id => this.project(id)));
       if (documents.some(doc => !doc.exists)) throw new Error("A workspace project is missing.");
       return { revision: meta.revision, members: meta.members, updatedAt: meta.updatedAt, updatedBy: meta.updatedBy,
-        workspace: { version: 2, activeProjectId: meta.projectIds[0], engineers: meta.engineers, projects: documents.map(doc => doc.data() as Project) } };
+        workspace: validateWorkspace({ version: 2, activeProjectId: meta.projectIds[0], engineers: meta.engineers, teams: meta.teams, projects: documents.map(doc => doc.data() as Project) }) };
     }, { readOnly: true });
   }
   async initialize(state: WorkspaceState) {
@@ -46,8 +46,10 @@ export class FirestoreRepository implements WorkspaceRepository {
     return this.db.runTransaction(async transaction => {
       const snapshot = await transaction.get(this.root());
       if (!snapshot.exists || snapshot.get("revision") !== before.revision) return false;
+      const projects = snapshot.get("teams") === undefined ? next.workspace.projects : changed;
+      projects.forEach(assertSize);
       transaction.set(this.root(), meta);
-      changed.forEach(project => transaction.set(this.project(project.id), project));
+      projects.forEach(project => transaction.set(this.project(project.id), project));
       return true;
     });
   }

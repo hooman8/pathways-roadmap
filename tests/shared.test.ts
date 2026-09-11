@@ -10,7 +10,7 @@ test("simultaneous edits to separate tasks and projects are preserved", () => {
   const mine = structuredClone(base), shared = structuredClone(base);
   mine.projects[0].roadmap.tasks[0].description = "My instructions";
   shared.projects[0].roadmap.tasks[1].description = "Their instructions";
-  shared.projects.push(createProject(sampleRoadmap, "Another application", "Registry onboarding"));
+  shared.projects.push(createProject(base.projects[0].roadmap, "Another application", "Registry onboarding"));
   const result = mergeWorkspaces(base, mine, shared);
   assert.deepEqual(result.conflicts, []);
   assert.equal(result.workspace.projects[0].roadmap.tasks[0].description, "My instructions");
@@ -41,7 +41,7 @@ test("replaying a committed save after a lost response is harmless", () => {
 
 test("active project choice stays local to each engineer", () => {
   const base = migrateRoadmap(sampleRoadmap);
-  base.projects.push(createProject(sampleRoadmap, "Second", "Registry onboarding"));
+  base.projects.push(createProject(base.projects[0].roadmap, "Second", "Registry onboarding"));
   const mine = structuredClone(base); mine.activeProjectId = mine.projects[1].id;
   assert.deepEqual(content(base), content(mine));
   const result = mergeWorkspaces(base, mine, base);
@@ -61,4 +61,17 @@ test("impediments merge with independent skipped work and concurrent resolution 
   resolved.projects[0].roadmap.tasks = resolveImpediments("identity", resolved.projects[0].roadmap.tasks);
   updated.projects[0].roadmap.tasks = changeTaskStatus("identity", "blocked", updated.projects[0].roadmap.tasks, "A different approval is pending");
   assert.ok(mergeWorkspaces(merged.workspace, resolved, updated).conflicts.length > 0);
+});
+
+test("team membership changes merge with independent task edits; concurrent roster changes require review", () => {
+  const base = migrateRoadmap(sampleRoadmap);
+  base.engineers = [{ id: "alex", name: "Alex", team: "" }, { id: "sam", name: "Sam", team: "" }];
+  const mine = structuredClone(base), shared = structuredClone(base);
+  mine.teams[0].engineerIds = ["alex"];
+  shared.projects[0].roadmap.tasks[0].description = "Independent edit";
+  const merged = mergeWorkspaces(base, mine, shared);
+  assert.deepEqual(merged.conflicts, []);
+  assert.deepEqual(merged.workspace.teams[0].engineerIds, ["alex"]);
+  shared.teams[0].engineerIds = ["sam"];
+  assert.ok(mergeWorkspaces(base, mine, shared).conflicts.length > 0);
 });

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { WorkspaceStore, WorkspaceError, type WorkspaceRepository, type WorkspaceState } from "../lib/workspace-store";
-import { createProject } from "../lib/projects";
+import { createProject, updateTeam, saveProjectTask, selectTaskTeam } from "../lib/projects";
 import { sampleRoadmap } from "../lib/sample-roadmap";
 import type { Identity } from "../lib/shared";
 
@@ -45,7 +45,7 @@ test("project-scoped editors cannot read or overwrite hidden projects", async ()
   const service = store();
   let snapshot = await service.get(owner);
   const workspace = snapshot.workspace!;
-  const hidden = createProject(sampleRoadmap, "Restricted application", "Private roadmap");
+  const hidden = createProject(workspace.projects[0].roadmap, "Restricted application", "Private roadmap");
   workspace.projects.push(hidden);
   workspace.engineers.push({ id: "private-engineer", name: "Hidden Engineer", team: "Security" });
   hidden.engineerIds = ["private-engineer"];
@@ -95,4 +95,30 @@ test("malformed assignments and access lists are rejected on the server", async 
   await assert.rejects(service.saveMembers(owner, snapshot.revision, []), status(400));
   await assert.rejects(service.saveMembers(owner, snapshot.revision, [...snapshot.members!, ...snapshot.members!]), status(400));
   await assert.rejects(service.saveMembers(owner, snapshot.revision, [...snapshot.members!, { email: editor.email, role: "editor", projectIds: ["unknown"] }]), status(400));
+});
+
+test("owners manage shared teams; scoped editors see only permitted members and preserve the full roster", async () => {
+  const service = store();
+  let snapshot = await service.get(owner);
+  let workspace = updateTeam(snapshot.workspace!, { id: "platform", name: "Platform", engineerIds: ["visible", "hidden"] }, [
+    { id: "visible", name: "Visible Engineer", team: "" }, { id: "hidden", name: "Private Engineer", team: "" },
+  ]);
+  workspace = saveProjectTask(workspace, workspace.projects[0].id, { ...selectTaskTeam(workspace.projects[0].roadmap.tasks[0], workspace.teams.find(t => t.id === "platform")), assigneeIds: ["visible"] });
+  workspace = updateTeam(workspace, { id: "private-team", name: "Private team", engineerIds: ["hidden"] });
+  snapshot = await service.save(owner, snapshot.revision, workspace);
+  await service.saveMembers(owner, snapshot.revision, [...snapshot.members!, { email: editor.email, role: "editor", projectIds: [workspace.projects[0].id] }]);
+  let scoped = await service.get(editor);
+  assert.deepEqual(scoped.workspace!.teams.find(t => t.id === "platform")!.engineerIds, ["visible"]);
+  assert.ok(!JSON.stringify(scoped.workspace).includes("hidden"));
+  assert.ok(!JSON.stringify(scoped.workspace).includes("private-team"));
+  const altered = structuredClone(scoped.workspace!);
+  altered.teams.find(t => t.id === "platform")!.name = "Hijacked name";
+  await assert.rejects(service.save(editor, scoped.revision, altered), status(403));
+  const valid = structuredClone(scoped.workspace!);
+  valid.projects[0].roadmap.tasks[0].description = "An allowed task edit";
+  scoped = await service.save(editor, scoped.revision, valid);
+  const after = await service.get(owner);
+  assert.deepEqual(after.workspace!.teams.find(t => t.id === "platform")!.engineerIds, ["visible", "hidden"]);
+  const { teams: _teams, ...legacy } = after.workspace!;
+  await assert.rejects(service.save(owner, after.revision, legacy), status(400));
 });

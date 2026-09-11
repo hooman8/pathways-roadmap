@@ -285,3 +285,38 @@ button { cursor: pointer; } button:disabled { cursor: not-allowed; }
 .not-needed-note { font-size: 14px; line-height: 1.5; padding: 14px; margin-top: 16px; border-radius: 6px; background: #f3f5f7; color: #58616e; }
 .map-legend { flex-wrap: wrap; max-width: calc(100% - 84px); }
 @media (max-width: 767px) { .map-legend { max-width: calc(100% - 28px); gap: 7px 12px; }.react-flow__controls { bottom: 65px; } }
+
+/* Team management follows the existing project settings drawer. */
+.teams-dialog { display: flex; flex-direction: column; gap: 0; padding: 0; max-height: 90dvh; overflow: hidden; }
+.teams-dialog [data-slot=dialog-header] { padding: 24px; border-bottom: 1px solid #e0e6ee; flex-shrink: 0; }
+.teams-dialog [data-slot=dialog-title] { font-size: 24px; }
+.teams-dialog [data-slot=dialog-description] { font-size: 14px; line-height: 1.5; }
+.teams-form { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.teams-layout { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr); }
+.teams-list { display: flex; flex-direction: column; gap: 6px; padding: 20px 14px; border-right: 1px solid #e0e6ee; max-height: 460px; overflow-y: auto; }
+.teams-list > button:first-child { flex-shrink: 0; margin-bottom: 6px; }
+.team-list-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 6px; text-align: left; font-size: 14px; line-height: 1.4; color: #536779; }
+.team-list-item svg { flex-shrink: 0; margin-top: 2px; }
+.team-list-item span { min-width: 0; overflow-wrap: anywhere; }
+.team-list-item small { display: block; font-size: 12px; color: #66788a; margin-top: 4px; }
+.team-list-item:hover { background: #f2f5f7; }.team-list-item.selected { background: #eaf0f7; color: #293e57; }
+.team-list-item:focus-visible { outline: 2px solid #607a99; outline-offset: 2px; }
+.team-member-editor { min-width: 0; padding: 24px; display: flex; flex-direction: column; gap: 10px; }
+.team-member-editor label { font-size: 14px; }.team-member-editor input { font-size: 16px; }
+.team-member-editor .project-section-heading { margin: 12px 0 0; }.team-member-editor .project-section-heading > span { font-size: 14px; }
+.team-members { max-height: 240px; }.team-members .engineer-identity strong { font-size: 16px; }
+.new-team-engineer { display: grid; gap: 10px; margin-top: 12px; }.new-team-engineer button { justify-self: start; }
+.teams-empty { display: grid; justify-items: start; align-content: center; gap: 16px; min-height: 200px; color: #596d85; }
+.teams-dialog [data-slot=dialog-footer] { padding: 18px 24px; border-top: 1px solid #e0e6ee; }
+.teams-dialog .form-error, .teams-dialog .team-change-note { margin: 0 24px 16px; font-size: 14px; }
+.responsible-team-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 16px; }
+.editor-fields .responsible-team-heading label { margin: 0; }.responsible-team-heading button { font-size: 14px; color: #587aa1; }
+.project-team-editor > [data-slot=label] { margin: 10px 0 8px; }.project-team-editor > .engineer-picker, .project-team-editor > button { margin-top: 12px; }
+.editor-fields .task-assignee-picker label { font-size: 14px; }.task-assignee-picker small { font-size: 12px; }
+@media (max-width: 600px) {
+  .teams-dialog { width: calc(100% - 24px); max-height: 92dvh; }
+  .teams-layout { grid-template-columns: 1fr; }
+  .teams-list { border-right: 0; border-bottom: 1px solid #e0e6ee; max-height: 185px; padding: 16px; }
+  .team-member-editor, .teams-dialog [data-slot=dialog-header] { padding: 20px; }
+  .teams-dialog [data-slot=dialog-footer] { padding: 16px 20px; }
+}

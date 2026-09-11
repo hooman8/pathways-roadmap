@@ -7,6 +7,9 @@ import { FirestoreRepository } from "../lib/firestore-repository";
 import { WorkspaceStore, WorkspaceError } from "../lib/workspace-store";
 import type { SharedSnapshot } from "../lib/shared";
 import { changeTaskStatus, resolveImpediments, taskStatus } from "../lib/roadmap";
+import { updateTeam, selectTaskTeam, saveProjectTask } from "../lib/projects";
+import { sampleRoadmap } from "../lib/sample-roadmap";
+import { same } from "../lib/shared";
 
 const projectId = process.env.GOOGLE_CLOUD_PROJECT!;
 if (!projectId?.startsWith("demo-") || !process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST) throw new Error("Integration tests require isolated emulators.");
@@ -71,6 +74,14 @@ test("HTTP authentication, CSRF, memberships, revision checks, and sign-out prot
     assert.equal((await request("/api/workspace", "PUT", { revision: initial.revision, workspace: initial.workspace }, cookie)).status, 409);
     let latest = await (await request("/api/workspace", "GET", undefined, cookie)).json() as SharedSnapshot;
     assert.equal(latest.workspace!.projects[0].roadmap.application, "HTTP saved project");
+    let withTeam = updateTeam(latest.workspace!, { id: "delivery", name: "Delivery Engineering", engineerIds: ["engineer-one"] }, [{ id: "engineer-one", name: "Test Engineer", team: "" }]);
+    withTeam = saveProjectTask(withTeam, withTeam.projects[0].id, { ...selectTaskTeam(withTeam.projects[0].roadmap.tasks[0], withTeam.teams.find(t => t.id === "delivery")), assigneeIds: ["engineer-one"] });
+    const teamSave = await request("/api/workspace", "PUT", { revision: latest.revision, workspace: withTeam }, cookie);
+    assert.equal(teamSave.status, 200, await teamSave.text());
+    latest = await (await request("/api/workspace", "GET", undefined, cookie)).json() as SharedSnapshot;
+    assert.ok(same(latest.workspace, withTeam));
+    assert.equal(latest.workspace!.projects[0].roadmap.tasks[0].teamId, "delivery");
+    assert.deepEqual(latest.workspace!.projects[0].engineerIds, ["engineer-one"]);
     const statuses = structuredClone(latest.workspace!);
     statuses.projects[0].roadmap.tasks = changeTaskStatus("identity", "blocked", statuses.projects[0].roadmap.tasks, "Waiting on external approval");
     statuses.projects[0].roadmap.tasks = changeTaskStatus("retention", "skipped", statuses.projects[0].roadmap.tasks);
@@ -104,4 +115,33 @@ test("HTTP authentication, CSRF, memberships, revision checks, and sign-out prot
     assert.equal(signOut.status, 200); assert.match(signOut.headers.get("set-cookie")!, /expires=Thu, 01 Jan 1970/i);
     assert.equal((await request("/api/workspace")).status, 401);
   } finally { await db.recursiveDelete(db.collection("workspaces").doc("default")); }
+});
+
+test("legacy Firestore data upgrades teams and task references together without losing assignments", async () => {
+  const id = `migration-${crypto.randomUUID()}`, root = db.collection("workspaces").doc(id);
+  const user = { userId: "owner", email: "owner@example.com", displayName: "Owner" };
+  const roadmap = structuredClone(sampleRoadmap);
+  roadmap.tasks[0].owner = "Application Engineering";
+  roadmap.tasks[0].assigneeIds = ["existing-engineer"];
+  const project = { id: "original-project", engineerIds: ["existing-engineer"], roadmap };
+  const doc = root.collection("projects").doc(Buffer.from(project.id).toString("base64url"));
+  try {
+    await root.set({ revision: 7, members: [{ ...user, role: "owner", projectIds: null }], updatedAt: new Date().toISOString(), updatedBy: user.displayName,
+      projectIds: [project.id], engineers: [{ id: "existing-engineer", name: "Existing Engineer", team: "" }] });
+    await doc.set(project);
+    const store = new WorkspaceStore(new FirestoreRepository(db, id), user.email);
+    const before = await store.get(user);
+    const team = before.workspace!.teams.find(t => t.name === "Application Engineering")!;
+    assert.deepEqual(team.engineerIds, ["existing-engineer"]);
+    assert.deepEqual(before.workspace!.projects[0].roadmap.tasks[0].assigneeIds, ["existing-engineer"]);
+    const draft = structuredClone(before.workspace!);
+    draft.projects[0].roadmap.title = "First save after upgrade";
+    const saved = await store.save(user, before.revision, draft);
+    assert.ok((await doc.get()).get("roadmap.tasks").every((t: { teamId?: string | null }) => t.teamId !== undefined));
+    const renamed = updateTeam(saved.workspace!, { ...team, name: "Renamed Team" });
+    await store.save(user, saved.revision, renamed);
+    const fresh = await new WorkspaceStore(new FirestoreRepository(db, id), user.email).get(user);
+    assert.ok(same(fresh.workspace, renamed));
+    assert.equal(fresh.workspace!.projects[0].roadmap.tasks[0].status, roadmap.tasks[0].status);
+  } finally { await db.recursiveDelete(root); }
 });

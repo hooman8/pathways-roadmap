@@ -28,10 +28,30 @@ address and Google Cloud resources.
 2. Open **Workspace access** and add colleagues by their Google sign-in email.
    Give them editor or viewer access to all projects or selected projects.
 3. Share the application URL with them. Adding an account does not send email.
-4. Create a named project, add engineers in **Project settings & engineers**, and
-   assign those engineers to tasks or substeps.
+4. Open **Teams & engineers** to create named teams and add their engineers.
+   Create a project, then select its responsible team and engineers in each task.
 5. Expand workstreams or use the checklist. Completed prerequisites unlock
    dependent work. Reopening a prerequisite resets affected downstream progress.
+
+### Teams and task assignments
+
+Workspace owners use **Teams & engineers** to create or rename teams, add engineers,
+and choose their members. Engineers may belong to multiple teams. The task editor's
+**Responsible team** dropdown filters engineer choices to that team. Assigning an
+engineer adds them to the project's roster when the step is saved (up to 50 per
+project). With no responsible team, the task can use the existing project roster.
+Project settings also supports filtering engineers by team and adding a whole team.
+
+Changing a task's team clears assignments outside the new team. Removing someone
+from a team shows the affected assignment count before saving; their project
+membership and task progress remain. Team renames update task labels across
+projects. Existing free-text team labels migrate automatically, including the
+engineers already assigned to those tasks. Teams and assignments persist in
+Firestore and project/workspace exports.
+
+Project-scoped members see only engineers in their permitted projects. Only owners
+can change the shared team directory; importing teams with new names or memberships
+also requires an owner. Engineer records do not grant sign-in access.
 
 ### Not-needed work and impediments
 

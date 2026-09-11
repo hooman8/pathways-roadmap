@@ -19,7 +19,16 @@ export type SharedSnapshot = {
   members: MemberInput[] | null;
 };
 
-export const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+// Firestore and schema parsing may return object keys in different orders.
+// Arrays retain their meaningful order; absent optional fields equal undefined.
+export function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => same(v, b[i]));
+  const left = a as Record<string, unknown>, right = b as Record<string, unknown>;
+  const keys = Object.keys(left).filter(k => left[k] !== undefined), other = Object.keys(right).filter(k => right[k] !== undefined);
+  return keys.length === other.length && keys.every(k => Object.hasOwn(right, k) && same(left[k], right[k]));
+}
 export function content(workspace: Workspace) {
   return { ...workspace, activeProjectId: workspace.projects[0].id };
 }
@@ -53,7 +62,7 @@ export function mergeWorkspaces(base: Workspace, mine: Workspace, shared: Worksp
   try {
     workspace = validateWorkspace(merged);
     // Do not silently discard progress when concurrent dependency edits conflict.
-    if (!same(workspace, merged)) conflicts.push({ path: "Dependencies or task progress", mine: "Your changes require reconciliation", shared: "Review the latest shared roadmap" });
+    if (!same(workspace, merged)) conflicts.push({ path: "Dependencies, teams, or task progress", mine: "Your changes require reconciliation", shared: "Review the latest shared roadmap" });
   } catch (error) {
     conflicts.push({ path: "Roadmap structure", mine: error instanceof Error ? error.message : "Incompatible changes", shared: "Review the latest shared roadmap" });
   }

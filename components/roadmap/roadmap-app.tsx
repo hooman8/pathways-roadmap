@@ -17,14 +17,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Sidebar, SidebarProvider, SidebarHeader, SidebarContent, SidebarFooter, SidebarInset, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarTrigger, SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
 import RoadmapCanvas, { StatusMark } from "./roadmap-canvas";
-import { changeTaskStatus, childrenOf, isGroup, isResolved, leafTasks, progress, progressPercent, progressText, prerequisites, relatedTasks, statusLabels, taskStatus, validateRoadmap, type Roadmap, type Task } from "@/lib/roadmap";
+import { changeTaskStatus, childrenOf, isGroup, isResolved, leafTasks, progress, progressPercent, progressText, prerequisites, relatedTasks, statusLabels, taskStatus, type Roadmap, type Task } from "@/lib/roadmap";
 import { sampleRoadmap } from "@/lib/sample-roadmap";
 import ProjectDialog from "./project-dialog";
-import { WORKSPACE_KEY, readWorkspace, migrateRoadmap, updateProject, assignedEngineers, exportProject, parseProjectImport, mergeProjectImport, LEGACY_KEY, type ImportedProjects } from "@/lib/projects";
+import { WORKSPACE_KEY, readWorkspace, migrateRoadmap, updateProject, assignedEngineers, exportProject, parseProjectImport, mergeProjectImport, LEGACY_KEY, eligibleEngineers, selectTaskTeam, saveProjectTask, type ImportedProjects } from "@/lib/projects";
 
 import { useSharedWorkspace } from "@/hooks/use-shared-workspace";
 import AccessDialog from "./access-dialog";
 import TaskStatusControls from "./task-status-controls";
+import TeamsDialog from "./teams-dialog";
 
 function downloadJson(data: unknown, filename: string) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -33,12 +34,13 @@ function downloadJson(data: unknown, filename: string) {
 export default function RoadmapApp() {
   const [projectDialog, setProjectDialog] = useState<"create" | "edit" | null>(null);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [teamsOpen, setTeamsOpen] = useState(false);
   const [draft, setDraft] = useState<Task | null>(null);
   const [imported, setImported] = useState<ImportedProjects | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [browserProjects, setBrowserProjects] = useState(false);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const sync = useSharedWorkspace(!!projectDialog || !!draft || !!imported || accessOpen || statusDialogOpen);
+  const sync = useSharedWorkspace(!!projectDialog || !!draft || !!imported || accessOpen || statusDialogOpen || teamsOpen);
   const workspace = sync.workspace ?? migrateRoadmap(sampleRoadmap);
   const setWorkspace = sync.setWorkspace;
   const canEdit = !!sync.snapshot && sync.snapshot.membership.role !== "viewer" && sync.status !== "conflict";
@@ -47,6 +49,7 @@ export default function RoadmapApp() {
   const project = workspace.projects.find(p => p.id === workspace.activeProjectId)!;
   const roadmap = project.roadmap;
   const projectEngineers = workspace.engineers.filter(e => project.engineerIds.includes(e.id));
+  const taskEngineers = draft ? eligibleEngineers(draft, project, workspace) : [];
   function setRoadmap(next: Roadmap) { if (!canEdit) return; setWorkspace(current => updateProject(current, project.id, next)); }
   async function signOut() {
     try {
@@ -55,7 +58,7 @@ export default function RoadmapApp() {
       window.location.assign("/login");
     } catch { toast.error("Could not sign out. Please try again."); }
   }
-  function exportCurrent() { downloadJson(exportProject(project, workspace.engineers), `${roadmap.application.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-roadmap.json`); }
+  function exportCurrent() { downloadJson(exportProject(project, workspace.engineers, workspace.teams), `${roadmap.application.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-roadmap.json`); }
   function switchProject(id: string) {
     setWorkspace(current => ({ ...current, activeProjectId: id }));
     setSelected(null); setSheetOpen(false); setDraft(null); setExpanded(new Set()); setReadyOnly(false);
@@ -100,15 +103,15 @@ export default function RoadmapApp() {
   }
   function addTask(parentId: string | null = null) {
     if (!canEdit) return;
-    setDraft({ id: crypto.randomUUID(), title: "", owner: tasks.find(t => t.id === parentId)?.owner ?? "", parentId, description: "", criteria: [], dependsOn: [], assigneeIds: [], status: "todo" });
+    setDraft({ id: crypto.randomUUID(), title: "", owner: tasks.find(t => t.id === parentId)?.owner ?? "", teamId: tasks.find(t => t.id === parentId)?.teamId ?? null, parentId, description: "", criteria: [], dependsOn: [], assigneeIds: [], status: "todo" });
     setSelected(null); setError(""); setSheetOpen(true);
   }
   function saveTask() {
     if (!draft || !canEdit) return;
     const exists = tasks.some(t => t.id === draft.id);
     try {
-      const next = validateRoadmap({ ...roadmap, tasks: exists ? tasks.map(t => t.id === draft.id ? draft : t) : [...tasks, draft] });
-      setRoadmap(next); setSelected(draft.id); setDraft(null); setError("");
+      const next = saveProjectTask(workspace, project.id, draft);
+      setWorkspace(next); setSelected(draft.id); setDraft(null); setError("");
       toast.success(exists ? "Task updated. Dependencies recalculated." : "Step added to your roadmap.");
     } catch (e) { setError(e instanceof Error ? e.message : "Check the task details."); }
   }
@@ -142,7 +145,7 @@ export default function RoadmapApp() {
       <SidebarHeader className="brand"><span className="brand-symbol"><Workflow size={23} strokeWidth={2.1} /></span><span>pathways<span className="brand-dot">.</span></span></SidebarHeader>
       <SidebarContent>
         <div className="workspace-label"><span className="workspace-avatar">PE</span><div><strong>Platform engineering</strong><span>Onboarding workspace</span></div></div>
-        <div className="project-picker"><div className="project-picker-label"><Label htmlFor="active-project">PROJECT</Label><Button variant="ghost" size="sm" aria-label="Create a new project" disabled={!canCreate} onClick={() => setProjectDialog("create")}><Plus size={15} />New</Button></div><Select value={project.id} onValueChange={switchProject}><SelectTrigger id="active-project" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{workspace.projects.map(p => <SelectItem key={p.id} value={p.id}>{p.roadmap.application}</SelectItem>)}</SelectContent></Select><Button className="project-settings-link" variant="ghost" disabled={!canEdit} onClick={() => setProjectDialog("edit")}><Users size={14} />Project settings & engineers</Button></div>
+        <div className="project-picker"><div className="project-picker-label"><Label htmlFor="active-project">PROJECT</Label><Button variant="ghost" size="sm" aria-label="Create a new project" disabled={!canCreate} onClick={() => setProjectDialog("create")}><Plus size={15} />New</Button></div><Select value={project.id} onValueChange={switchProject}><SelectTrigger id="active-project" className="w-full"><SelectValue /></SelectTrigger><SelectContent>{workspace.projects.map(p => <SelectItem key={p.id} value={p.id}>{p.roadmap.application}</SelectItem>)}</SelectContent></Select><Button className="project-settings-link" variant="ghost" disabled={!canEdit} onClick={() => setProjectDialog("edit")}><Users size={14} />Project settings & engineers</Button>{isOwner && <Button className="project-settings-link" variant="ghost" disabled={!canEdit} onClick={() => setTeamsOpen(true)}><Users size={14} />Teams & engineers</Button>}</div>
         <SidebarGroup><SidebarGroupLabel>ROADMAP OUTLINE</SidebarGroupLabel><SidebarMenu>
           {tasks.filter(t => !t.parentId).map((t, i) => <SidebarMenuItem key={t.id}><SidebarMenuButton isActive={selected === t.id} onClick={() => onOpen(t.id)} className="outline-item"><span className="outline-number">{String(i + 1).padStart(2, "0")}</span><span>{t.title}</span><StatusMark status={taskStatus(t.id, tasks)} /></SidebarMenuButton></SidebarMenuItem>)}
         </SidebarMenu></SidebarGroup>
@@ -174,8 +177,15 @@ export default function RoadmapApp() {
       <SheetHeader><div className="eyebrow">{draft ? tasks.some(t => t.id === draft.id) ? "EDIT TASK" : "NEW STEP" : group ? "WORKSTREAM DETAILS" : "TASK DETAILS"}</div><SheetTitle>{draft ? draft.title || "Add a step" : task?.title}</SheetTitle><SheetDescription>{draft ? "Define the work and what needs to happen first." : task?.owner || "Unassigned"}</SheetDescription></SheetHeader>
       {draft ? <form className="task-editor" onSubmit={e => { e.preventDefault(); saveTask(); }}>
         <div className="editor-fields"><Label htmlFor="task-title">Task name</Label><Input id="task-title" required maxLength={120} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="e.g. Configure image signing" />
-          <Label htmlFor="task-owner">Responsible team</Label><Input id="task-owner" maxLength={100} value={draft.owner} onChange={e => setDraft({ ...draft, owner: e.target.value })} placeholder="e.g. Platform team" />
-          <Label>Assigned engineers</Label>{projectEngineers.length ? <div className="task-assignee-picker">{projectEngineers.map(engineer => <label key={engineer.id}><Checkbox checked={(draft.assigneeIds ?? []).includes(engineer.id)} onCheckedChange={checked => setDraft({ ...draft, assigneeIds: checked ? [...(draft.assigneeIds ?? []), engineer.id] : (draft.assigneeIds ?? []).filter(id => id !== engineer.id) })} /><span>{engineer.name}{engineer.team && <small>{engineer.team}</small>}</span></label>)}</div> : <div className="task-assignee-empty"><p>No engineers have been added to this project.</p><Button type="button" variant="outline" size="sm" onClick={() => setProjectDialog("edit")}><Users size={14} />Add project engineers</Button></div>}
+          <div className="responsible-team-heading"><Label htmlFor="task-owner">Responsible team</Label>{isOwner && <Button type="button" variant="ghost" size="sm" onClick={() => setTeamsOpen(true)}>Manage teams</Button>}</div>
+          <Select value={draft.teamId ?? "__none"} onValueChange={value => {
+            const next = selectTaskTeam(draft, workspace.teams.find(t => t.id === value));
+            if (!next.teamId) next.assigneeIds = (next.assigneeIds ?? []).filter(id => project.engineerIds.includes(id));
+            const removed = (draft.assigneeIds ?? []).length - (next.assigneeIds ?? []).length;
+            setDraft(next);
+            if (removed) toast.info(`${removed} engineer assignment${removed === 1 ? " was" : "s were"} cleared because of the team change. Save the step to apply.`);
+          }}><SelectTrigger id="task-owner" className="w-full"><SelectValue placeholder="Choose a team" /></SelectTrigger><SelectContent><SelectItem value="__none">No responsible team</SelectItem>{workspace.teams.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent></Select>
+          <Label>Assigned engineers</Label>{taskEngineers.length ? <><div className="task-assignee-picker">{taskEngineers.map(engineer => <label key={engineer.id}><Checkbox checked={(draft.assigneeIds ?? []).includes(engineer.id)} onCheckedChange={checked => setDraft({ ...draft, assigneeIds: checked ? [...(draft.assigneeIds ?? []), engineer.id] : (draft.assigneeIds ?? []).filter(id => id !== engineer.id) })} /><span>{engineer.name}{!project.engineerIds.includes(engineer.id) && <small>Added to this project when assigned</small>}</span></label>)}</div><p className="field-hint">{draft.teamId ? "Showing engineers from the selected team." : "Choose a team to see its engineers. Showing the current project roster."}</p></> : <div className="task-assignee-empty"><p>{draft.teamId ? canCreate ? "This team has no engineers yet." : "No engineers from this team are available with your project access." : "Choose a responsible team to see its engineers."}</p>{isOwner && <Button type="button" variant="outline" size="sm" onClick={() => setTeamsOpen(true)}><Users size={14} />Add team engineers</Button>}</div>}
           <Label htmlFor="task-parent">Part of</Label><Select value={draft.parentId ?? "__root"} onValueChange={value => setDraft({ ...draft, parentId: value === "__root" ? null : value })}><SelectTrigger id="task-parent" className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__root">Main roadmap</SelectItem>{tasks.filter(t => t.id !== draft.id).map(t => <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>)}</SelectContent></Select>
           <Label htmlFor="task-description">Instructions</Label><Textarea id="task-description" rows={4} maxLength={5000} value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} placeholder="What needs to be done?" />
           <Label htmlFor="task-criteria">Completion criteria <span className="field-hint">one per line</span></Label><Textarea id="task-criteria" rows={3} value={draft.criteria.join("\n")} onChange={e => setDraft({ ...draft, criteria: e.target.value.split("\n") })} placeholder="A clear condition for completion" />
@@ -199,7 +209,8 @@ export default function RoadmapApp() {
     <Dialog open={!!imported} onOpenChange={open => { if (!open) setImported(null); }}><DialogContent><DialogHeader><DialogTitle>Import {imported?.projects.length === 1 ? "this project" : "these projects"}?</DialogTitle><DialogDescription>Imported projects will be added alongside your existing projects, with their progress, engineers, and task assignments.</DialogDescription></DialogHeader><div className="import-summary"><strong>{imported?.projects.map(p => p.roadmap.application).join(", ")}</strong><span>{imported?.projects.length} project(s) · {imported?.engineers.length} engineer(s)</span></div><DialogFooter><Button variant="outline" onClick={() => setImported(null)}>Cancel</Button><Button onClick={() => { if (!imported || !canCreate) return; try { const next = mergeProjectImport(workspace, imported); setWorkspace(next); setExpanded(new Set()); setSelected(null); setSheetOpen(false); setImported(null); setBrowserProjects(false); try { localStorage.setItem("pathways-browser-imported", "1"); } catch { /* Optional preference. */ } toast.success("Projects imported."); } catch (e) { toast.error(e instanceof Error ? e.message : "Could not import projects."); } }}>Import projects</Button></DialogFooter></DialogContent></Dialog>
     <AlertDialog open={!!reopen} onOpenChange={open => { if (!open) setReopen(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reopen this task?</AlertDialogTitle><AlertDialogDescription>Dependent tasks that are complete or in progress will reset and become blocked until their prerequisites are resolved again. Tasks marked not needed keep that status.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { if (reopen) updateStatus(reopen, "todo"); setReopen(null); }}>Reopen task</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <AlertDialog open={resetOpen} onOpenChange={setResetOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reset progress for {roadmap.application}?</AlertDialogTitle><AlertDialogDescription>All tasks in this project will become required and return to pending. Impediments will be cleared. The steps, dependencies, project engineers, and task assignments will be kept. Other projects are unaffected.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><Button variant="outline" onClick={exportCurrent}>Export project</Button><AlertDialogAction onClick={() => { setRoadmap({ ...roadmap, tasks: tasks.map(t => { const next = { ...t, status: "todo" as const }; delete next.blockedReason; return next; }) }); setResetOpen(false); toast.success("Project progress reset."); }}>Reset progress</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-    {projectDialog && <ProjectDialog mode={projectDialog} workspace={workspace} onClose={() => setProjectDialog(null)} onSave={next => { const changedProject = next.activeProjectId !== project.id; setWorkspace(next); if (changedProject) { setExpanded(new Set()); setSelected(null); setSheetOpen(false); setDraft(null); setReadyOnly(false); } else { setDraft(current => current ? { ...current, assigneeIds: (current.assigneeIds ?? []).filter(id => next.projects.find(p => p.id === project.id)!.engineerIds.includes(id)) } : null); } toast.success(projectDialog === "create" ? "Project created with fresh progress." : "Project and engineers updated."); }} />}
+    {projectDialog && <ProjectDialog mode={projectDialog} workspace={workspace} onManageTeams={isOwner ? () => setTeamsOpen(true) : undefined} onClose={() => setProjectDialog(null)} onSave={next => { const changedProject = next.activeProjectId !== project.id; setWorkspace(next); if (changedProject) { setExpanded(new Set()); setSelected(null); setSheetOpen(false); setDraft(null); setReadyOnly(false); } else { setDraft(current => current ? { ...current, assigneeIds: (current.assigneeIds ?? []).filter(id => next.projects.find(p => p.id === project.id)!.engineerIds.includes(id)) } : null); } toast.success(projectDialog === "create" ? "Project created with fresh progress." : "Project and engineers updated."); }} />}
+    {teamsOpen && isOwner && <TeamsDialog workspace={workspace} initialTeamId={draft?.teamId} onClose={() => setTeamsOpen(false)} onSave={next => { if (!canEdit) throw new Error("Resolve the conflicting edits before saving teams."); setWorkspace(next); setDraft(current => current ? selectTaskTeam(current, next.teams.find(t => t.id === current.teamId)) : null); toast.success("Teams and engineers updated."); }} />}
     {accessOpen && sync.snapshot && <AccessDialog snapshot={sync.snapshot} onClose={() => setAccessOpen(false)} onSaved={() => { toast.success("Workspace access saved."); setTimeout(() => { void sync.refresh(); }, 0); }} />}
     <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Load the shared version?</AlertDialogTitle><AlertDialogDescription>This replaces your unsaved draft with the latest shared data. Export your draft first if you want to keep it.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><Button variant="outline" onClick={() => downloadJson(workspace, "pathways-unsaved-draft.json")}>Export draft</Button><AlertDialogAction onClick={() => { setDraft(null); setProjectDialog(null); setSheetOpen(false); setSelected(null); void sync.discard(); }}>Load shared version</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <Toaster position="bottom-right" richColors closeButton />
