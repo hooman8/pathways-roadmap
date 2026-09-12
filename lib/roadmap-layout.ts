@@ -1,5 +1,5 @@
 import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
-import { dependencyEdges, childrenOf, type Task } from "./roadmap";
+import { answerLabel, dependencyEdges, childrenOf, type Task } from "./roadmap";
 
 export type PositionedTask = { id: string; parentId?: string; x: number; y: number; width: number; height: number };
 export type LayoutResult = { nodes: PositionedTask[]; edges: { id: string; source: string; target: string; label?: string }[] };
@@ -27,10 +27,25 @@ export async function layoutRoadmap(tasks: Task[], expanded: Set<string>): Promi
     if (visible.has(id)) return id;
     return t.parentId ? representative(t.parentId) : id;
   }
-  const edges = [...new Map(dependencyEdges(tasks).map(edge => {
-    const source = representative(edge.source), target = representative(edge.target);
-    return [`${source}:${target}:${edge.label ?? ""}`, { id: `${source}:${target}:${edge.label ?? ""}`, source, target, ...(edge.label ? { label: edge.label } : {}) }];
-  })).values()].filter(edge => edge.source !== edge.target);
+  const dependencies = dependencyEdges(tasks);
+  function visibleEdges(forDisplay: boolean): LayoutResult["edges"] {
+    return [...new Map(dependencies.map(edge => {
+      let targetId = edge.target;
+      if (forDisplay && edge.label) {
+        // Draw an inherited condition once at the workstream that owns it.
+        // Keep leaf-level constraints for ELK and dependency evaluation.
+        let task = tasks.find(t => t.id === edge.target);
+        while (task) {
+          if (task.condition?.decisionId === edge.source && answerLabel(task.condition.answer) === edge.label) targetId = task.id;
+          task = tasks.find(t => t.id === task?.parentId);
+        }
+      }
+      const source = representative(edge.source), target = representative(targetId);
+      const id = `${source}:${target}:${edge.label ?? ""}`;
+      return [id, { id, source, target, ...(edge.label ? { label: edge.label } : {}) }];
+    })).values()].filter(edge => edge.source !== edge.target);
+  }
+  const edges = visibleEdges(true);
   const result = await elk.layout({
     id: "root",
     layoutOptions: {
@@ -39,7 +54,7 @@ export async function layoutRoadmap(tasks: Task[], expanded: Set<string>): Promi
       "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.padding": "[top=12,left=16,bottom=12,right=16]",
     },
     children,
-    edges: edges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] })),
+    edges: visibleEdges(false).map(e => ({ id: e.id, sources: [e.source], targets: [e.target] })),
   });
   const nodes: PositionedTask[] = [];
   function flatten(node: ElkNode, parentId?: string) {

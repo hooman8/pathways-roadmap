@@ -148,6 +148,31 @@ test("collapsed and expanded maps retain Yes/No labels and branch positions", as
   assert.ok(collapsed.edges.some(e => e.source === "database-needed" && e.target === "alternative" && e.label === "No"));
   assert.ok(collapsed.edges.some(e => e.source === "database-needed" && e.target === "continue" && e.label === "No"));
   const expanded = await layoutRoadmap(tasks, new Set(["database"]));
-  assert.ok(expanded.edges.some(e => e.source === "database-needed" && e.target === "create-db" && e.label === "Yes"));
+  assert.deepEqual(expanded.edges.filter(e => e.source === "database-needed" && e.label === "Yes").map(e => e.target), ["database"]);
+  assert.ok(expanded.edges.some(e => e.source === "create-db" && e.target === "configure-db" && !e.label));
   assert.ok(expanded.nodes.every(n => Number.isFinite(n.x) && Number.isFinite(n.y)));
+});
+
+test("inherited decision labels appear once per workstream through nested expansion", async () => {
+  const tasks = [
+    step("decision", { decision: { answer: null } }),
+    step("yes-work", { condition: { decisionId: "decision", answer: "yes" } }),
+    step("nested", { parentId: "yes-work" }),
+    step("first", { parentId: "nested" }),
+    step("second", { parentId: "nested", condition: { decisionId: "decision", answer: "yes" } }),
+    step("parallel", { parentId: "yes-work" }),
+    step("separate-yes", { condition: { decisionId: "decision", answer: "yes" } }),
+    step("no-work", { condition: { decisionId: "decision", answer: "no" } }),
+    step("alternative", { parentId: "no-work" }),
+  ];
+  const before = structuredClone(tasks);
+  const collapsed = await layoutRoadmap(tasks, new Set());
+  const expanded = await layoutRoadmap(tasks, new Set(["yes-work", "nested", "no-work"]));
+  assert.deepEqual(expanded.edges, collapsed.edges);
+  assert.deepEqual(expanded.edges.map(e => [e.target, e.label]), [["yes-work", "Yes"], ["separate-yes", "Yes"], ["no-work", "No"]]);
+  assert.deepEqual(tasks, before);
+  for (const id of ["first", "second", "parallel", "alternative"]) assert.equal(taskStatus(id, tasks), "waiting");
+  const answered = answerDecision("decision", "yes", tasks);
+  assert.equal(taskStatus("first", answered), "ready");
+  assert.equal(taskStatus("alternative", answered), "skipped");
 });
