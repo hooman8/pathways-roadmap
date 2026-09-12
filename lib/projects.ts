@@ -135,6 +135,8 @@ function copyRoadmap(source: Roadmap, reset: boolean): Roadmap {
     ...copy, tasks: copy.tasks.map(task => ({ ...task, id: ids.get(task.id)!,
       parentId: task.parentId ? ids.get(task.parentId)! : null,
       dependsOn: task.dependsOn.map(id => ids.get(id)!),
+      ...(task.condition ? { condition: { ...task.condition, decisionId: ids.get(task.condition.decisionId)! } } : {}),
+      ...(task.decision ? { decision: { answer: reset ? null : task.decision.answer } } : {}),
       status: reset ? "todo" : task.status, assigneeIds: reset ? [] : task.assigneeIds ?? [],
     })),
   };

@@ -2,7 +2,7 @@ import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 import { dependencyEdges, childrenOf, type Task } from "./roadmap";
 
 export type PositionedTask = { id: string; parentId?: string; x: number; y: number; width: number; height: number };
-export type LayoutResult = { nodes: PositionedTask[]; edges: { id: string; source: string; target: string }[] };
+export type LayoutResult = { nodes: PositionedTask[]; edges: { id: string; source: string; target: string; label?: string }[] };
 let elk: InstanceType<typeof ELK> | undefined;
 
 export async function layoutRoadmap(tasks: Task[], expanded: Set<string>): Promise<LayoutResult> {
@@ -29,7 +29,7 @@ export async function layoutRoadmap(tasks: Task[], expanded: Set<string>): Promi
   }
   const edges = [...new Map(dependencyEdges(tasks).map(edge => {
     const source = representative(edge.source), target = representative(edge.target);
-    return [`${source}:${target}`, { id: `${source}:${target}`, source, target }];
+    return [`${source}:${target}:${edge.label ?? ""}`, { id: `${source}:${target}:${edge.label ?? ""}`, source, target, ...(edge.label ? { label: edge.label } : {}) }];
   })).values()].filter(edge => edge.source !== edge.target);
   const result = await elk.layout({
     id: "root",

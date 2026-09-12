@@ -7,7 +7,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { changeTaskStatus, isGroup, isResolved, leafTasks, resolveImpediments, taskStatus, type Task } from "@/lib/roadmap";
+import { branchState, changeTaskStatus, isGroup, isResolved, leafTasks, resolveImpediments, taskStatus, type Task } from "@/lib/roadmap";
 
 export default function TaskStatusControls({ task, tasks, disabled, onChange, onOpenChange }: {
   task: Task; tasks: Task[]; disabled: boolean; onChange: (next: Task[], message: string) => void; onOpenChange: (open: boolean) => void;
@@ -17,10 +17,10 @@ export default function TaskStatusControls({ task, tasks, disabled, onChange, on
   const [error, setError] = useState("");
   useEffect(() => () => onOpenChange(false), [onOpenChange]);
   const group = isGroup(task.id, tasks);
-  const leaves = leafTasks(task.id, tasks);
+  const leaves = leafTasks(task.id, tasks).filter(t => !t.decision && branchState(t.id, tasks) === "active");
   const status = taskStatus(task.id, tasks);
   const impediments = leaves.filter(t => t.status === "blocked");
-  const canAdd = group ? leaves.some(t => !isResolved(t) && t.status !== "blocked") : !isResolved(task);
+  const canAdd = group ? leaves.some(t => !isResolved(t, tasks) && t.status !== "blocked") : !isResolved(task, tasks);
   function close() { setAction(null); onOpenChange(false); }
   function open(next: typeof action) { setReason(task.blockedReason ?? ""); setError(""); setAction(next); onOpenChange(!!next); }
   function apply() {
@@ -45,9 +45,9 @@ export default function TaskStatusControls({ task, tasks, disabled, onChange, on
     </DropdownMenuContent></DropdownMenu>
     <Dialog open={!!action} onOpenChange={open => { if (!open) close(); }}><DialogContent>
       <DialogHeader><DialogTitle>{action ? titles[action] : "Change task status"}</DialogTitle><DialogDescription>
-        {action === "skip" ? `${group ? `All ${leaves.length} substeps in this workstream` : "This task"} will be marked not needed, excluded from completion totals, and treated as resolved by dependent work.`
+        {action === "skip" ? `${group ? `All ${leaves.length} active task substeps in this workstream` : "This task"} will be marked not needed, excluded from completion totals, and treated as resolved by dependent work.`
           : action === "restore" ? "This work will return to pending. Completed or active downstream work may reset if it depends on it."
-          : action === "impediment" ? `Record what is preventing progress on ${task.title}. ${group ? "This applies to unfinished required substeps without an existing impediment." : "This task remains required and holds up dependent work."}`
+          : action === "impediment" ? `Record what is preventing progress on ${task.title}. ${group ? "This applies to unfinished active task substeps without an existing impediment." : "This task remains required and holds up dependent work."}`
           : "The affected tasks will return to pending. Unfinished prerequisites can still block them; completed and not-needed tasks stay unchanged."}
       </DialogDescription></DialogHeader>
       {action === "impediment" && <div className="impediment-form"><Label htmlFor="impediment-reason">What is holding up this work?</Label><Textarea id="impediment-reason" value={reason} maxLength={1000} rows={4} placeholder="e.g. Waiting for the network team to approve firewall access" onChange={e => setReason(e.target.value)} autoFocus /></div>}

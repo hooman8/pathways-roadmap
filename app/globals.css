@@ -346,3 +346,34 @@ button { cursor: pointer; } button:disabled { cursor: not-allowed; }
 .detail-task-list .substep-order-controls button { width: 32px; height: 32px; padding: 6px; justify-content: center; color: #536779; }
 .detail-task-list .substep-order-controls button > svg:last-child { margin: 0; color: inherit; }
 .detail-task-list .substep-order-controls button:disabled { opacity: .35; }
+
+/* Decisions keep conditional work distinct from impediments. */
+.status-mark.waiting, .state-badge.waiting { color: #65508c; background: #f0eafa; }
+.task-card.waiting { background: #faf7ff; border-color: #b5a5cc; }
+.task-state.waiting { color: #65508c; }
+.task-card.decision-card { border-width: 2px; border-color: #9179b1; background: #f8f3ff; }
+.task-card.decision-card.skipped { background: #f5f6f8; border-color: #a9b1bc; }
+.decision-card .task-eyebrow > span:first-child { display: flex; align-items: center; gap: 4px; color: #65508c; }
+.inline-decision-icon { display: inline; margin-right: 7px; color: #745795; vertical-align: middle; }
+.decision-editor-note { padding: 12px; background: #f7f2fc; color: #65508c; font-size: 14px; line-height: 1.5; border-radius: 6px; margin-bottom: 16px; }
+.decision-condition-fields { padding: 14px; border: 1px solid #ded3ec; background: #fcfaff; border-radius: 7px; margin-bottom: 18px; }
+.editor-fields .decision-condition-fields > label:first-child { margin-top: 0; }
+.decision-condition-fields .field-hint { margin-top: 10px; line-height: 1.5; }
+.decision-details { margin-top: 22px; padding: 18px; border: 1px solid #ded3ec; background: #fcfaff; border-radius: 8px; }
+.decision-details > h3 { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #584474; font-size: 15px; }
+.decision-answer-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.decision-answer-buttons > button { min-width: 72px; }
+.decision-answer-buttons > button[aria-pressed=true] { background: #695084; color: white; }
+.decision-details .field-hint { font-size: 14px; line-height: 1.5; }
+.decision-branch { border: 1px solid #e3ddeb; border-radius: 6px; background: #fff; margin-top: 14px; padding: 12px; }
+.decision-branch.selected-branch { border-color: #a18ab7; }
+.decision-branch-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; color: #65508c; }
+.decision-branch-step { display: flex; width: 100%; align-items: center; text-align: left; gap: 10px; padding: 10px 0; font-size: 14px; }
+.decision-branch-step > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.decision-branch-step small { display: block; margin-top: 5px; color: #778291; font-size: 13px; }
+.decision-branch-step:hover { color: #65508c; }
+.decision-branch-step:focus-visible, .branch-conditions > button:focus-visible { outline: 2px solid #9179b1; outline-offset: 3px; }
+.branch-conditions > button { display: flex; align-items: center; text-align: left; gap: 10px; width: 100%; margin: 12px 0; font-size: 14px; }
+.branch-conditions > button > span { flex: 1; overflow-wrap: anywhere; }
+.branch-conditions strong { display: block; color: #65508c; margin-top: 4px; }
+@media (max-width: 900px) { .map-actions { flex-wrap: wrap; justify-content: flex-end; } }

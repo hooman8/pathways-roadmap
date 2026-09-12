@@ -80,6 +80,35 @@ steps. Project engineers, teams, and other projects remain. Editors can delete
 steps in their permitted projects; viewers cannot. Conflicting shared edits are
 reviewed before any stale deletion can replace newer work.
 
+### Decisions and conditional branches
+
+Choose **Add decision**, enter a Yes/No question, and select the work that must
+finish first under **Prerequisites**. After saving, use **Add step** under **If Yes**
+or **If No** in the decision's details. Existing tasks can join a branch through
+**Edit → Run only when → [decision] → Answer is**. Conditions apply to every
+substep, so a database workstream can contain creation and configuration tasks.
+Add ordinary prerequisite links between those substeps to put creation first.
+
+For “Is a database needed?”, put the database workstream on **Yes** and leave **No**
+empty. Before answering, its tasks show **Waiting for decision**. Yes makes that
+work required; No makes it **Not needed** and excludes it from completion totals.
+To rejoin the workflow, make the next shared step depend on the decision and the
+branch workstream(s). Only the selected work must be completed. The map labels
+conditional arrows Yes or No and gives decisions a distinct purple treatment.
+
+Decision answers require completed prerequisites and count as completed steps.
+They can be changed or cleared with a confirmation. Saved progress and impediments
+on unselected branches are retained; reactivated work has its prerequisites
+checked again. Downstream completed work may reopen when requirements change.
+Reopening a decision's prerequisite clears its answer. Nested decisions are
+supported, and contradictory conditions or dependency loops are rejected.
+
+Answers and conditions persist in Firestore and exports. Creating a new project
+or resetting progress clears answers. Deleting a decision lists the branches
+whose conditions will be removed; they become ordinary required work. Viewers
+cannot answer or change decisions. Older open clients must refresh before saving
+a project with decisions, so they cannot accidentally remove the new fields.
+
 ### Not-needed work and impediments
 
 Open a task and use **Change status**:
@@ -97,7 +126,8 @@ Open a task and use **Change status**:
   must be explicitly resolved, even after all prerequisites are satisfied.
 
 Workstream status is calculated from its substeps. Marking a workstream not needed
-applies to all its leaf tasks. Adding an impediment to a workstream applies only
+applies to its active leaf tasks; decision answers and unselected branches keep
+their saved values. Adding an impediment to a workstream applies only
 to unfinished required substeps without an existing impediment; completed tasks,
 not-needed tasks, and existing impediment reasons are preserved. Resolving a
 workstream's impediments clears those impediments without changing its skipped or

@@ -6,7 +6,8 @@ import { getFirestore } from "firebase-admin/firestore";
 import { FirestoreRepository } from "../lib/firestore-repository";
 import { WorkspaceStore, WorkspaceError } from "../lib/workspace-store";
 import type { SharedSnapshot } from "../lib/shared";
-import { changeTaskStatus, resolveImpediments, taskStatus, deleteStep, moveStep, childrenOf } from "../lib/roadmap";
+import { answerDecision, changeTaskStatus, resolveImpediments, taskStatus, deleteStep, moveStep, childrenOf } from "../lib/roadmap";
+import { decisionRoadmap } from "./decision-fixture";
 import { updateTeam, selectTaskTeam, saveProjectTask } from "../lib/projects";
 import { sampleRoadmap } from "../lib/sample-roadmap";
 import { same } from "../lib/shared";
@@ -27,8 +28,47 @@ async function account(email: string, verified = true) {
   return body.idToken as string;
 }
 async function request(path: string, method = "GET", body?: unknown, cookie = "", from = origin) {
-  return fetch(`${origin}${path}`, { method, headers: { "Content-Type": "application/json", "X-Pathways-Client": "1", Origin: from, ...(cookie ? { Cookie: cookie } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  return fetch(`${origin}${path}`, { method, headers: { "Content-Type": "application/json", "X-Pathways-Client": "1", "X-Pathways-Decisions": "1", Origin: from, ...(cookie ? { Cookie: cookie } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
+
+test("HTTP decision answers and conditions persist, reject stale clients, and validate cycles", async () => {
+  await db.recursiveDelete(db.collection("workspaces").doc("default"));
+  try {
+    const token = await account("owner@example.com");
+    const login = await request("/api/session", "POST", { idToken: token });
+    assert.equal(login.status, 200, await login.text());
+    const cookie = login.headers.get("set-cookie")!.split(";")[0];
+    let latest = await (await request("/api/workspace", "GET", undefined, cookie)).json() as SharedSnapshot;
+    const draft = structuredClone(latest.workspace!);
+    draft.projects[0].roadmap = decisionRoadmap();
+    draft.projects[0].roadmap.tasks = changeTaskStatus("review", "done", draft.projects[0].roadmap.tasks);
+    const saved = await request("/api/workspace", "PUT", { revision: latest.revision, workspace: draft }, cookie);
+    assert.equal(saved.status, 200, await saved.text());
+    latest = await (await request("/api/workspace", "GET", undefined, cookie)).json() as SharedSnapshot;
+    assert.equal(taskStatus("create-db", latest.workspace!.projects[0].roadmap.tasks), "waiting");
+    const oldClient = structuredClone(latest.workspace!);
+    oldClient.projects[0].roadmap.tasks.forEach(t => { delete t.decision; delete t.condition; });
+    const outdated = await fetch(`${origin}/api/workspace`, { method: "PUT", headers: { "Content-Type": "application/json", "X-Pathways-Client": "1", Origin: origin, Cookie: cookie }, body: JSON.stringify({ revision: latest.revision, workspace: oldClient }) });
+    assert.equal(outdated.status, 400);
+    assert.match((await outdated.json()).error, /refresh/);
+    const firstRevision = latest.revision;
+    for (const answer of ["yes", "no", null] as const) {
+      const next = structuredClone(latest.workspace!);
+      next.projects[0].roadmap.tasks = answerDecision("database-needed", answer, next.projects[0].roadmap.tasks);
+      const response = await request("/api/workspace", "PUT", { revision: latest.revision, workspace: next }, cookie);
+      assert.equal(response.status, 200, await response.text());
+      latest = await (await request("/api/workspace", "GET", undefined, cookie)).json() as SharedSnapshot;
+      const tasks = latest.workspace!.projects[0].roadmap.tasks;
+      assert.equal(tasks.find(t => t.id === "database-needed")!.decision!.answer, answer);
+      assert.equal(taskStatus("create-db", tasks), answer === "yes" ? "ready" : answer === "no" ? "skipped" : "waiting");
+      assert.deepEqual(tasks.find(t => t.id === "database")!.condition, { decisionId: "database-needed", answer: "yes" });
+    }
+    assert.equal((await request("/api/workspace", "PUT", { revision: firstRevision, workspace: latest.workspace }, cookie)).status, 409);
+    const cyclic = structuredClone(latest.workspace!);
+    cyclic.projects[0].roadmap.tasks.find(t => t.id === "database-needed")!.dependsOn = ["database"];
+    assert.equal((await request("/api/workspace", "PUT", { revision: latest.revision, workspace: cyclic }, cookie)).status, 400);
+  } finally { await db.recursiveDelete(db.collection("workspaces").doc("default")); }
+});
 
 test("Firestore commits are durable across repository instances and atomic under concurrent writes", async () => {
   const id = `test-${crypto.randomUUID()}`;

@@ -35,7 +35,7 @@ export async function workspaceApi(request: Request, action: "get" | "save" | "m
     let body;
     try { body = JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new WorkspaceError(400, "The request is not valid JSON."); }
     if (!Number.isSafeInteger(body?.revision) || body.revision < 1) throw new WorkspaceError(400, "A valid workspace revision is required.");
-    const snapshot = action === "members" ? await store.saveMembers(user, body.revision, body.members) : await store.save(user, body.revision, body.workspace);
+    const snapshot = action === "members" ? await store.saveMembers(user, body.revision, body.members) : await store.save(user, body.revision, body.workspace, request.headers.get("X-Pathways-Decisions") === "1");
     return Response.json(snapshot, { headers });
   } catch (error) {
     if (error instanceof WorkspaceError) return Response.json({ error: error.message, snapshot: error.snapshot }, { status: error.status, headers });

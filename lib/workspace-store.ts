@@ -77,13 +77,14 @@ export class WorkspaceStore {
     const { state, member } = await this.authorized(user);
     return this.present(state, member, user);
   }
-  async save(user: Identity, revision: number, input: unknown) {
+  async save(user: Identity, revision: number, input: unknown, supportsDecisions = true) {
     const { state, member } = await this.authorized(user);
     if (member.role === "viewer") throw new WorkspaceError(403, "Your account has view-only access.");
     if (state.revision !== revision) throw new WorkspaceError(409, "The shared workspace changed.", this.present(state, member, user));
     if (!input || typeof input !== "object" || !("teams" in input)) throw new WorkspaceError(400, "Teams are now available. Export any unsaved draft, then refresh the page before saving.");
     let next: Workspace;
     try { next = validateWorkspace(input); } catch (error) { throw new WorkspaceError(400, error instanceof Error ? error.message : "Invalid workspace."); }
+    if (!supportsDecisions && [...state.workspace.projects.filter(p => canSee(member, p.id)), ...next.projects].some(p => p.roadmap.tasks.some(t => t.decision || t.condition))) throw new WorkspaceError(400, "Decisions are now available. Export any unsaved draft, then refresh the page before saving.");
     const allProjects = member.role === "owner" || member.projectIds === null;
     const visible = state.workspace.projects.filter(p => canSee(member, p.id));
     if (visible.some(p => !next.projects.some(n => n.id === p.id))) throw new WorkspaceError(400, "Existing projects must be retained.");

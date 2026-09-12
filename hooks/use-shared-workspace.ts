@@ -58,7 +58,7 @@ export function useSharedWorkspace(paused: boolean) {
     publish({ status: "saving", error: "" });
     try {
       const response = await fetch("/api/workspace", {
-        method: "PUT", headers: { "Content-Type": "application/json", "X-Pathways-Client": "1" },
+        method: "PUT", headers: { "Content-Type": "application/json", "X-Pathways-Client": "1", "X-Pathways-Decisions": "1" },
         body: JSON.stringify({ revision: before.revision, workspace: submitted }), signal: AbortSignal.timeout(15000),
       });
       const body = await response.json() as SharedSnapshot & { error?: string; snapshot?: SharedSnapshot };
