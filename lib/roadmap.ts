@@ -249,24 +249,38 @@ export function validateRoadmap(input: unknown): Roadmap {
 }
 export function dependencyEdges(tasks: Task[]): { source: string; target: string; label?: string }[] {
   const leaves = tasks.filter(t => !isGroup(t.id, tasks));
+  const dependencies = new Map(leaves.map(t => [t.id, prerequisites(t.id, tasks)]));
+  const gates = new Map(leaves.map(t => [t.id, conditions(t.id, tasks)]));
   const closure = (id: string, found = new Set<string>()): Set<string> => {
-    prerequisites(id, tasks).forEach(dep => { if (!found.has(dep)) { found.add(dep); closure(dep, found); } });
+    dependencies.get(id)?.forEach(dep => { if (!found.has(dep)) { found.add(dep); closure(dep, found); } });
     return found;
   };
-  return leaves.flatMap(task => {
-    const deps = prerequisites(task.id, tasks);
-    const gates = conditions(task.id, tasks);
+  const ancestors = new Map(leaves.map(t => [t.id, closure(t.id)]));
+  const bypasses = new Map(leaves.map(task => {
+    const deps = dependencies.get(task.id)!;
+    const taskGates = gates.get(task.id)!;
     // When a join explicitly waits for the decision and a one-sided branch,
     // show the empty branch's bypass instead of hiding that decision edge as
     // transitive. Other prerequisites on the join still apply.
     const bypass = new Map<string, "yes" | "no">();
     for (const dep of deps.filter(id => tasks.find(t => t.id === id)?.decision)) {
-      if (gates.some(c => c.decisionId === dep)) continue;
-      const answers = new Set(deps.flatMap(id => conditions(id, tasks).filter(c => c.decisionId === dep).map(c => c.answer)));
+      if (taskGates.some(c => c.decisionId === dep)) continue;
+      const answers = new Set(deps.flatMap(id => gates.get(id)!.filter(c => c.decisionId === dep).map(c => c.answer)));
       if (answers.size === 1) bypass.set(dep, answers.has("yes") ? "no" : "yes");
     }
-    return deps.filter(dep => bypass.has(dep) || gates.some(c => c.decisionId === dep) || !deps.some(other => other !== dep && closure(other).has(dep))).map(source => {
-      const condition = gates.find(c => c.decisionId === source);
+    return [task.id, bypass] as const;
+  }));
+  return leaves.flatMap(task => {
+    const deps = dependencies.get(task.id)!;
+    const taskGates = gates.get(task.id)!;
+    // Once the branch rejoins upstream, use the normal dependency path from
+    // that join. Group prerequisites can otherwise repeat the same bypass at
+    // every later step. A join behind an extra condition cannot replace it.
+    const bypass = new Map([...bypasses.get(task.id)!].filter(([decisionId, answer]) =>
+      ![...ancestors.get(task.id)!].some(id => bypasses.get(id)?.get(decisionId) === answer
+        && gates.get(id)!.every(gate => taskGates.some(c => c.decisionId === gate.decisionId && c.answer === gate.answer)))));
+    return deps.filter(dep => bypass.has(dep) || taskGates.some(c => c.decisionId === dep) || !deps.some(other => other !== dep && ancestors.get(other)!.has(dep))).map(source => {
+      const condition = taskGates.find(c => c.decisionId === source);
       const answer = condition?.answer ?? bypass.get(source);
       return { source, target: task.id, ...(answer ? { label: answerLabel(answer) } : {}) };
     });

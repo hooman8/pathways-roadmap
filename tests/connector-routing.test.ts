@@ -72,7 +72,7 @@ test("rendered connector routes avoid cards and headers in collapsed and expande
 test("decision bypasses and cross-workstream links go around the pipeline card", async () => {
   const tasks: Task[] = [step("review"), step("setup", { dependsOn: ["review"] }),
     step("decision", { parentId: "setup", decision: { answer: null } }),
-    step("optional-work", { condition: { decisionId: "decision", answer: "yes" } }),
+    step("optional-work", { parentId: "setup", condition: { decisionId: "decision", answer: "yes" } }),
     step("optional-one", { parentId: "optional-work" }), step("optional-two", { parentId: "optional-work", dependsOn: ["optional-one"] }),
     ...["repository", "environment", "registry", "scan", "access"].map(id => step(id, { parentId: "setup" })),
     step("pipeline", { parentId: "setup", dependsOn: ["repository", "environment", "registry", "scan", "access", "decision", "optional-work"] }),
@@ -84,7 +84,7 @@ test("decision bypasses and cross-workstream links go around the pipeline card",
   for (const expanded of [new Set<string>(), new Set(["setup"]), new Set(["setup", "optional-work", "parallel-work"])]) {
     const layout = await layoutRoadmap(roadmap.tasks, expanded);
     checkRoutes(layout);
-    if (expanded.has("setup")) assert.ok(layout.edges.some(e => e.source === "decision" && e.target === "pipeline" && e.label === "No"));
+    assert.deepEqual(layout.edges.filter(e => e.label === "No").map(e => [e.source, e.target]), expanded.has("setup") ? [["decision", "pipeline"]] : []);
   }
   assert.deepEqual(roadmap, original);
 });

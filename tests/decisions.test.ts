@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerDecision, branchState, changeTaskStatus, deleteStep, planStepDeletion, progress, taskStatus, validateRoadmap, type Task } from "../lib/roadmap";
+import { answerDecision, branchState, changeTaskStatus, deleteStep, dependencyEdges, planStepDeletion, progress, taskStatus, validateRoadmap, type Task } from "../lib/roadmap";
 import { layoutRoadmap } from "../lib/roadmap-layout";
 import { createProject, exportProject, mergeProjectImport, migrateRoadmap, parseProjectImport } from "../lib/projects";
 import { mergeWorkspaces } from "../lib/shared";
@@ -175,4 +175,58 @@ test("inherited decision labels appear once per workstream through nested expans
   const answered = answerDecision("decision", "yes", tasks);
   assert.equal(taskStatus("first", answered), "ready");
   assert.equal(taskStatus("alternative", answered), "skipped");
+});
+
+test("adding the decision prerequisite moves the bypass to the pipeline join", async () => {
+  const tasks = [step("onboarding"), step("approvals", { parentId: "onboarding" }),
+    step("decision", { parentId: "approvals", decision: { answer: null } }),
+    step("optional", { parentId: "onboarding", condition: { decisionId: "decision", answer: "yes" } }),
+    step("repository", { parentId: "onboarding" }),
+    step("pipeline", { parentId: "onboarding", dependsOn: ["repository", "optional"] }),
+    step("publish", { dependsOn: ["onboarding"] }),
+    step("release", { dependsOn: ["onboarding", "publish"] })];
+  assert.ok(dependencyEdges(tasks).some(e => e.source === "decision" && e.target === "publish" && e.label === "No"));
+  tasks.find(t => t.id === "pipeline")!.dependsOn.push("decision");
+  const original = structuredClone(tasks);
+  assert.deepEqual(dependencyEdges(tasks).filter(e => e.label === "No"), [{ source: "decision", target: "pipeline", label: "No" }]);
+  assert.ok(dependencyEdges(tasks).some(e => e.source === "pipeline" && e.target === "publish"));
+  for (const expanded of [new Set<string>(), new Set(["onboarding"]), new Set(["onboarding", "approvals"])]) {
+    const layout = await layoutRoadmap(tasks, expanded);
+    assert.deepEqual(layout.edges.filter(e => e.label === "No").map(e => [e.source, e.target]),
+      expanded.has("onboarding") ? [[expanded.has("approvals") ? "decision" : "approvals", "pipeline"]] : []);
+  }
+  assert.deepEqual(tasks, original);
+  let answered = answerDecision("decision", "no", tasks);
+  assert.equal(taskStatus("optional", answered), "skipped");
+  assert.equal(taskStatus("pipeline", answered), "blocked");
+  answered = changeTaskStatus("repository", "done", answered);
+  assert.equal(taskStatus("pipeline", answered), "ready");
+  assert.equal(taskStatus("publish", answered), "blocked");
+  answered = changeTaskStatus("pipeline", "done", answered);
+  assert.equal(taskStatus("publish", answered), "ready");
+  answered = answerDecision("decision", "yes", answered);
+  assert.equal(taskStatus("pipeline", answered), "blocked");
+  assert.equal(taskStatus("publish", answered), "blocked");
+});
+
+test("independent joins keep their bypasses for either answer without repeating at later joins", () => {
+  for (const answer of ["yes", "no"] as const) {
+    const tasks = [step("decision", { decision: { answer: null } }),
+      step("optional", { condition: { decisionId: "decision", answer } }),
+      step("first", { dependsOn: ["decision", "optional"] }),
+      step("parallel", { dependsOn: ["decision", "optional"] }),
+      step("middle", { dependsOn: ["first", "parallel"] }),
+      step("last", { dependsOn: ["decision", "optional", "middle"] })];
+    const edges = dependencyEdges(tasks);
+    assert.deepEqual(edges.filter(e => e.source === "decision" && e.label === (answer === "yes" ? "No" : "Yes")).map(e => e.target), ["first", "parallel"]);
+    assert.ok(edges.some(e => e.source === "middle" && e.target === "last"));
+  }
+});
+
+test("a join behind a separate condition does not hide a required downstream bypass", () => {
+  const tasks = [step("decision", { decision: { answer: null } }), step("other-decision", { decision: { answer: null } }),
+    step("optional", { condition: { decisionId: "decision", answer: "yes" } }),
+    step("conditional-join", { dependsOn: ["decision", "optional"], condition: { decisionId: "other-decision", answer: "yes" } }),
+    step("continue", { dependsOn: ["decision", "optional", "conditional-join"] })];
+  assert.ok(dependencyEdges(tasks).some(e => e.source === "decision" && e.target === "continue" && e.label === "No"));
 });
