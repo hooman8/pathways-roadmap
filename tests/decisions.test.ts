@@ -168,7 +168,7 @@ test("inherited decision labels appear once per workstream through nested expans
   const before = structuredClone(tasks);
   const collapsed = await layoutRoadmap(tasks, new Set());
   const expanded = await layoutRoadmap(tasks, new Set(["yes-work", "nested", "no-work"]));
-  assert.deepEqual(expanded.edges, collapsed.edges);
+  assert.deepEqual(expanded.edges.map(({ route: _route, ...edge }) => edge), collapsed.edges.map(({ route: _route, ...edge }) => edge));
   assert.deepEqual(expanded.edges.map(e => [e.target, e.label]), [["yes-work", "Yes"], ["separate-yes", "Yes"], ["no-work", "No"]]);
   assert.deepEqual(tasks, before);
   for (const id of ["first", "second", "parallel", "alternative"]) assert.equal(taskStatus(id, tasks), "waiting");

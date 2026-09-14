@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, Handle, MarkerType, Position, useReactFlow, type Node, type NodeProps, type Edge } from "@xyflow/react";
+import { BaseEdge, ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, Handle, MarkerType, Position, useReactFlow, type Node, type NodeProps, type EdgeProps, type Edge } from "@xyflow/react";
 import { ArrowDownRight, Check, ChevronDown, ChevronUp, Circle, Clock3, GitBranch, Hourglass, Layers3, LockKeyhole, SkipForward } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { layoutRoadmap, type LayoutResult } from "@/lib/roadmap-layout";
+import { layoutRoadmap, type LayoutResult, type EdgeRoute } from "@/lib/roadmap-layout";
 import { stepStatusLabel, childrenOf, leafTasks, progress, progressPercent, progressText, relatedTasks, taskStatus, type Task, type Status } from "@/lib/roadmap";
 import "@xyflow/react/dist/style.css";
 import { assignedEngineers, type Engineer } from "@/lib/projects";
 
 type CardData = {
-  task: Task; statusLabel: string; assigneeLabel: string; fullAssigneeLabel: string; status: Status; group: boolean; expanded: boolean; done: number; total: number; skipped: number;
+  inputX: number; outputX: number; task: Task; statusLabel: string; assigneeLabel: string; fullAssigneeLabel: string; status: Status; group: boolean; expanded: boolean; done: number; total: number; skipped: number;
   focused: boolean; faded: boolean; blocked: number; onExpand: (id: string) => void; onOpen: (id: string) => void;
 };
 type TaskNode = Node<CardData, "task">;
@@ -23,7 +23,7 @@ export function StatusMark({ status }: { status: Status }) {
 }
 function TaskCard({ data }: NodeProps<TaskNode>) {
   return <div className={`task-card ${data.status} ${data.task.decision ? "decision-card" : ""} ${data.group ? "task-group" : ""} ${data.expanded ? "expanded-group" : ""} ${data.focused ? "task-focused" : ""} ${data.faded ? "task-faded" : ""}`}>
-    <Handle type="target" position={Position.Top} isConnectable={false} />
+    <Handle type="target" style={{ left: data.inputX }} position={Position.Top} isConnectable={false} />
     <div className="task-card-content">
       <div className="task-eyebrow"><span>{data.task.decision ? <><GitBranch size={13} /> DECISION</> : data.group ? "WORKSTREAM" : "TASK"}</span><StatusMark status={data.status} /></div>
       <button className="task-title nodrag" onClick={() => data.onOpen(data.task.id)}>{data.task.title}</button>
@@ -34,10 +34,17 @@ function TaskCard({ data }: NodeProps<TaskNode>) {
     {data.group && <button className={`expand-button nodrag ${data.expanded ? "expanded-toggle" : ""}`} onClick={event => { event.stopPropagation(); data.onExpand(data.task.id); }} aria-expanded={data.expanded}>
       <Layers3 size={14} /><span>{data.expanded ? "Collapse substeps" : `Explore ${data.total + data.skipped} substeps`}</span>{data.expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
     </button>}
-    <Handle type="source" position={Position.Bottom} isConnectable={false} />
+    <Handle type="source" style={{ left: data.outputX }} position={Position.Bottom} isConnectable={false} />
   </div>;
 }
 const nodeTypes = { task: TaskCard };
+type RoutedEdge = Edge<{ route: EdgeRoute }, "routed">;
+function Connector({ data, id, markerEnd, style, label, labelStyle, labelBgStyle, labelBgPadding, interactionWidth }: EdgeProps<RoutedEdge>) {
+  if (!data?.route.points.length) return null;
+  const path = data.route.points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
+  return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={{ ...style, strokeLinejoin: "round" }} label={label} labelX={data.route.labelPosition?.x} labelY={data.route.labelPosition?.y} labelStyle={labelStyle} labelBgStyle={labelBgStyle} labelBgPadding={labelBgPadding} interactionWidth={interactionWidth} />;
+}
+const edgeTypes = { routed: Connector };
 
 function Canvas({ tasks, engineers, expanded, selected, readyOnly, onExpand, onOpen, clearSelection }: {
   tasks: Task[]; engineers: Engineer[]; expanded: Set<string>; selected: string | null; readyOnly: boolean;
@@ -77,23 +84,23 @@ function Canvas({ tasks, engineers, expanded, selected, readyOnly, onExpand, onO
       return {
         id: n.id, type: "task", parentId: n.parentId, position: { x: n.x, y: n.y },
         style: { width: n.width, height: n.height }, draggable: false,
-        data: { task, statusLabel: stepStatusLabel(task, tasks), assigneeLabel, fullAssigneeLabel: assigned.length ? `Assigned engineers: ${assigned.map(e => e.name).join(", ")}` : `Responsible team: ${task.owner || "Unassigned"}`, status, group, expanded: expanded.has(n.id) && group, ...p,
+        data: { inputX: n.inputX, outputX: n.outputX, task, statusLabel: stepStatusLabel(task, tasks), assigneeLabel, fullAssigneeLabel: assigned.length ? `Assigned engineers: ${assigned.map(e => e.name).join(", ")}` : `Responsible team: ${task.owner || "Unassigned"}`, status, group, expanded: expanded.has(n.id) && group, ...p,
           focused: selected === n.id, faded: (relations !== null && !active(n.id)) || (readyOnly && !leafTasks(n.id, tasks).some(t => taskStatus(t.id, tasks) === "ready")),
           blocked: leafTasks(n.id, tasks).filter(t => taskStatus(t.id, tasks) === "blocked").length,
           onExpand, onOpen,
         },
       };
     });
-    const edges: Edge[] = layout.edges.filter(e => nodes.some(n => n.id === e.source) && nodes.some(n => n.id === e.target)).map(e => {
+    const edges: RoutedEdge[] = layout.edges.filter(e => nodes.some(n => n.id === e.source) && nodes.some(n => n.id === e.target)).map(e => {
       const relevantEdge = !relations || (active(e.source) && active(e.target));
-      return { ...e, labelStyle: { fontWeight: 700, fill: "#5e4d99" }, labelBgStyle: { fill: "#f7f3ff" }, labelBgPadding: [8, 4], type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed, color: relevantEdge ? "#3472d3" : "#c6ceda", width: 15, height: 15 }, style: { stroke: relevantEdge ? "#3472d3" : "#c6ceda", strokeWidth: 2, opacity: relevantEdge ? 1 : 0.28 }, zIndex: 2 };
+      return { id: e.id, source: e.source, target: e.target, label: e.label, data: { route: e.route }, labelStyle: { fontWeight: 700, fill: "#5e4d99" }, labelBgStyle: { fill: "#f7f3ff" }, labelBgPadding: [8, 4], type: "routed", markerEnd: { type: MarkerType.ArrowClosed, color: relevantEdge ? "#3472d3" : "#c6ceda", width: 15, height: 15 }, style: { stroke: relevantEdge ? "#3472d3" : "#c6ceda", strokeWidth: 2, opacity: relevantEdge ? 1 : 0.28 }, zIndex: 2 };
     });
     return { nodes, edges };
   }, [tasks, engineers, layout, expanded, selected, readyOnly, relations, onExpand, onOpen]);
   return <div className="map-canvas" aria-label="Interactive onboarding dependency map">
-    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} nodesConnectable={false} nodesDraggable={false} elementsSelectable={false}
+    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} nodesConnectable={false} nodesDraggable={false} elementsSelectable={false}
       minZoom={0.2} maxZoom={1.5} fitView onNodeClick={(_, node) => onOpen(node.id)} onPaneClick={clearSelection}
-      defaultEdgeOptions={{ type: "smoothstep" }} colorMode="light">
+      defaultEdgeOptions={{ type: "routed" }} colorMode="light">
       <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#d9dfe4" />
       <Controls showInteractive={false} position="bottom-left" />
     </ReactFlow>
